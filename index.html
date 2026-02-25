@@ -1,0 +1,1122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cards Against Everyone</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
+
+  :root {
+    --black: #0a0a0a;
+    --white: #f5f0e8;
+    --red: #e63946;
+    --gold: #ffd700;
+    --gray: #1a1a1a;
+    --mid: #2a2a2a;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--black);
+    color: var(--white);
+    font-family: 'Space Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* NOISE TEXTURE */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.4;
+  }
+
+  h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    letter-spacing: 0.05em;
+  }
+
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  /* ===== LOBBY ===== */
+  #lobby {
+    min-height: 100vh;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    gap: 2rem;
+  }
+  #lobby.active { display: flex; }
+
+  .title-block {
+    text-align: center;
+    border: 3px solid var(--white);
+    padding: 2rem 3rem;
+    position: relative;
+  }
+  .title-block::before {
+    content: '';
+    position: absolute;
+    inset: 6px;
+    border: 1px solid var(--red);
+    pointer-events: none;
+  }
+  .title-block h1 { font-size: clamp(3rem, 8vw, 6rem); line-height: 1; }
+  .title-block p { font-size: 0.75rem; color: #888; margin-top: 0.5rem; letter-spacing: 0.2em; text-transform: uppercase; }
+
+  .lobby-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    width: 100%;
+    max-width: 700px;
+  }
+
+  .panel {
+    background: var(--gray);
+    border: 1px solid #333;
+    padding: 1.5rem;
+  }
+  .panel h2 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.4rem;
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
+    color: var(--gold);
+  }
+
+  input, textarea {
+    background: var(--black);
+    border: 1px solid #444;
+    color: var(--white);
+    font-family: 'Space Mono', monospace;
+    font-size: 0.85rem;
+    padding: 0.6rem 0.8rem;
+    width: 100%;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  input:focus, textarea:focus { border-color: var(--red); }
+  textarea { resize: vertical; min-height: 80px; }
+
+  .btn {
+    background: var(--white);
+    color: var(--black);
+    border: none;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.1rem;
+    letter-spacing: 0.08em;
+    padding: 0.7rem 1.5rem;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+    width: 100%;
+    margin-top: 0.7rem;
+  }
+  .btn:hover { background: var(--gold); }
+  .btn:active { transform: scale(0.98); }
+  .btn.red { background: var(--red); color: var(--white); }
+  .btn.red:hover { background: #ff6b6b; }
+  .btn.outline {
+    background: transparent;
+    color: var(--white);
+    border: 1px solid #555;
+  }
+  .btn.outline:hover { border-color: var(--white); background: transparent; }
+
+  .input-row { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+  .input-row input { flex: 1; margin: 0; }
+  .input-row .btn { width: auto; margin: 0; padding: 0.6rem 1rem; white-space: nowrap; }
+
+  .status-msg {
+    font-size: 0.75rem;
+    color: #888;
+    margin-top: 0.5rem;
+    min-height: 1em;
+  }
+  .status-msg.ok { color: #4ade80; }
+  .status-msg.err { color: var(--red); }
+
+  /* ===== DECK BUILDER ===== */
+  #deckBuilder {
+    min-height: 100vh;
+    display: none;
+    flex-direction: column;
+    padding: 2rem;
+    gap: 1.5rem;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  #deckBuilder.active { display: flex; }
+
+  .deck-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .deck-header h1 { font-size: 2.5rem; flex: 1; }
+
+  .deck-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+
+  .card-list {
+    background: var(--gray);
+    border: 1px solid #333;
+    min-height: 200px;
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 0.5rem;
+  }
+  .card-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border-bottom: 1px solid #2a2a2a;
+    font-size: 0.82rem;
+    line-height: 1.4;
+  }
+  .card-item:last-child { border-bottom: none; }
+  .card-item span { flex: 1; }
+  .card-item .del {
+    color: var(--red);
+    cursor: pointer;
+    font-size: 1rem;
+    flex-shrink: 0;
+    line-height: 1;
+    padding: 0 2px;
+  }
+  .card-item .del:hover { color: #ff9999; }
+
+  .col-label {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.2rem;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+  }
+  .col-label.black-label { color: #aaa; }
+  .col-label.white-label { color: var(--gold); }
+
+  .blank-hint { font-size: 0.7rem; color: #666; margin-bottom: 0.5rem; }
+
+  /* ===== WAITING ROOM ===== */
+  #waitingRoom {
+    min-height: 100vh;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    gap: 1.5rem;
+  }
+  #waitingRoom.active { display: flex; }
+
+  .room-code-display {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(2rem, 6vw, 4rem);
+    letter-spacing: 0.3em;
+    background: var(--mid);
+    border: 2px solid var(--gold);
+    padding: 1rem 2rem;
+    cursor: pointer;
+    position: relative;
+  }
+  .room-code-display::after {
+    content: 'CLICK TO COPY';
+    position: absolute;
+    bottom: -1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.6rem;
+    color: #666;
+    letter-spacing: 0.15em;
+    white-space: nowrap;
+  }
+
+  .player-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: center;
+    max-width: 600px;
+  }
+  .player-chip {
+    background: var(--mid);
+    border: 1px solid #444;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.8rem;
+    position: relative;
+  }
+  .player-chip.host { border-color: var(--gold); color: var(--gold); }
+
+  /* ===== GAME ===== */
+  #gameScreen {
+    display: none;
+    min-height: 100vh;
+    flex-direction: column;
+    padding: 1.5rem;
+    gap: 1.5rem;
+  }
+  #gameScreen.active { display: flex; }
+
+  .game-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    border-bottom: 1px solid #333;
+    padding-bottom: 1rem;
+  }
+  .game-header h1 { font-size: 1.8rem; }
+  .scores {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-left: auto;
+  }
+  .score-chip {
+    background: var(--mid);
+    padding: 0.3rem 0.7rem;
+    font-size: 0.75rem;
+    border: 1px solid #444;
+  }
+  .score-chip.czar { border-color: var(--red); }
+  .score-chip.me { border-color: var(--gold); color: var(--gold); }
+
+  .black-card-area {
+    background: var(--black);
+    border: 3px solid var(--white);
+    padding: 2rem;
+    max-width: 400px;
+    min-height: 160px;
+    position: relative;
+  }
+  .black-card-area::after {
+    content: 'BLACK CARD';
+    position: absolute;
+    bottom: 0.75rem;
+    right: 1rem;
+    font-size: 0.6rem;
+    letter-spacing: 0.2em;
+    color: #555;
+  }
+  .black-card-text {
+    font-size: 1.1rem;
+    line-height: 1.6;
+    font-weight: 700;
+  }
+  .black-card-text .blank {
+    display: inline-block;
+    border-bottom: 2px solid var(--white);
+    min-width: 80px;
+    height: 1em;
+    vertical-align: bottom;
+    margin: 0 4px;
+  }
+
+  .game-main {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+
+  .phase-box {
+    background: var(--gray);
+    border: 1px solid #333;
+    padding: 1.5rem;
+  }
+  .phase-box h2 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.3rem;
+    letter-spacing: 0.05em;
+    color: var(--gold);
+    margin-bottom: 1rem;
+  }
+
+  /* Typing area */
+  .type-area textarea {
+    min-height: 100px;
+    font-size: 1rem;
+  }
+  .char-count { font-size: 0.7rem; color: #666; margin-top: 0.3rem; text-align: right; }
+
+  /* Submissions */
+  .submissions-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .white-card {
+    background: var(--white);
+    color: var(--black);
+    padding: 1rem 1.2rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    cursor: default;
+    border: 2px solid transparent;
+    transition: border-color 0.15s, transform 0.1s;
+    position: relative;
+    min-height: 80px;
+  }
+  .white-card.selectable { cursor: pointer; }
+  .white-card.selectable:hover { border-color: var(--red); transform: translateY(-2px); }
+  .white-card.selected { border-color: var(--gold); }
+  .white-card.winner { border-color: var(--red); background: #fff5f5; }
+  .white-card .card-author {
+    position: absolute;
+    bottom: 0.4rem;
+    right: 0.6rem;
+    font-size: 0.65rem;
+    color: #888;
+  }
+
+  .round-result {
+    background: var(--mid);
+    border: 1px solid var(--red);
+    padding: 1rem;
+    font-size: 0.9rem;
+    line-height: 1.6;
+  }
+
+  .phase-indicator {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1rem;
+    letter-spacing: 0.15em;
+    color: var(--red);
+    text-transform: uppercase;
+  }
+
+  /* Czar badge */
+  .czar-badge {
+    background: var(--red);
+    color: var(--white);
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    padding: 0.2rem 0.5rem;
+  }
+
+  /* Scrollbars */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--black); }
+  ::-webkit-scrollbar-thumb { background: #444; }
+
+  @media (max-width: 640px) {
+    .lobby-grid, .deck-cols, .game-main { grid-template-columns: 1fr; }
+    .game-header { flex-direction: column; align-items: flex-start; }
+    .scores { margin-left: 0; }
+  }
+
+  .fade-in { animation: fadeIn 0.3s ease forwards; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .pulse { animation: pulse 1s ease infinite alternate; }
+  @keyframes pulse { from { opacity: 0.6; } to { opacity: 1; } }
+</style>
+</head>
+<body>
+
+<!-- ===== LOBBY ===== -->
+<div id="lobby" class="active">
+  <div class="title-block">
+    <h1>Cards Against<br>Everyone</h1>
+    <p>P2P · Custom Decks · No Mercy</p>
+  </div>
+
+  <div style="max-width:700px;width:100%">
+    <div class="panel" style="margin-bottom:1rem">
+      <h2>Your Name</h2>
+      <input id="playerName" type="text" placeholder="Enter your name..." maxlength="20">
+    </div>
+  </div>
+
+  <div class="lobby-grid">
+    <div class="panel">
+      <h2>Create Room</h2>
+      <p style="font-size:0.75rem;color:#888;margin-bottom:1rem">You'll be the host & Card Czar first. Upload a deck JSON or use the built-in demo deck.</p>
+      <label style="font-size:0.75rem;color:#aaa;display:block;margin-bottom:0.5rem">Upload Deck (JSON)</label>
+      <input type="file" id="deckUploadCreate" accept=".json" style="font-size:0.75rem;padding:0.4rem">
+      <div class="status-msg" id="deckStatus">No deck loaded — demo deck will be used</div>
+      <button class="btn" onclick="createRoom()">Create Room</button>
+      <button class="btn outline" onclick="showDeckBuilder()" style="margin-top:0.5rem">Build a Deck First</button>
+    </div>
+
+    <div class="panel">
+      <h2>Join Room</h2>
+      <p style="font-size:0.75rem;color:#888;margin-bottom:1rem">Enter the room code shared by the host.</p>
+      <input id="joinCode" type="text" placeholder="Room code..." maxlength="8" style="text-transform:uppercase;letter-spacing:0.2em;font-size:1rem">
+      <button class="btn red" onclick="joinRoom()">Join Room</button>
+      <div class="status-msg" id="joinStatus"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== DECK BUILDER ===== -->
+<div id="deckBuilder">
+  <div class="deck-header">
+    <h1>Deck Builder</h1>
+    <button class="btn outline" style="width:auto;padding:0.5rem 1rem" onclick="showLobby()">← Back</button>
+    <button class="btn" style="width:auto;padding:0.5rem 1rem" onclick="downloadDeck()">Download JSON</button>
+  </div>
+
+  <div style="max-width:400px">
+    <label style="font-size:0.75rem;color:#aaa;display:block;margin-bottom:0.3rem">Deck Name</label>
+    <input id="deckName" type="text" placeholder="My Deck" value="My Deck">
+  </div>
+
+  <div class="deck-cols">
+    <!-- Black Cards -->
+    <div>
+      <div class="col-label black-label">⬛ Black Cards (Prompts)</div>
+      <div class="blank-hint">Use ___ for blanks where players fill in. Example: "I like ___ in the morning."</div>
+      <div class="input-row">
+        <input id="newBlack" type="text" placeholder="Add a black card...">
+        <button class="btn" onclick="addBlackCard()">Add</button>
+      </div>
+      <div class="card-list" id="blackCardList" style="margin-top:0.75rem"></div>
+      <div class="status-msg" id="blackCount">0 cards</div>
+    </div>
+
+    <!-- White Cards -->
+    <div>
+      <div class="col-label white-label">⬜ White Card Topics (Optional)</div>
+      <div class="blank-hint">Optional seed topics shown as hints. Players still type their own answers.</div>
+      <div class="input-row">
+        <input id="newWhite" type="text" placeholder="Add a topic hint...">
+        <button class="btn" onclick="addWhiteCard()">Add</button>
+      </div>
+      <div class="card-list" id="whiteCardList" style="margin-top:0.75rem"></div>
+      <div class="status-msg" id="whiteCount">0 cards</div>
+    </div>
+  </div>
+
+  <div style="margin-top:0.5rem">
+    <label style="font-size:0.75rem;color:#aaa;display:block;margin-bottom:0.3rem">Load existing JSON to edit</label>
+    <input type="file" id="deckUploadEdit" accept=".json" onchange="loadDeckForEdit(this)" style="font-size:0.75rem;padding:0.4rem">
+  </div>
+</div>
+
+<!-- ===== WAITING ROOM ===== -->
+<div id="waitingRoom">
+  <div style="text-align:center">
+    <div style="font-size:0.75rem;letter-spacing:0.2em;color:#888;margin-bottom:0.5rem">ROOM CODE</div>
+    <div class="room-code-display" id="roomCodeDisplay" onclick="copyCode()">----</div>
+  </div>
+  <div style="text-align:center">
+    <div style="font-size:0.75rem;letter-spacing:0.15em;color:#888;margin-bottom:1rem">PLAYERS</div>
+    <div class="player-list" id="playerList"></div>
+  </div>
+  <div id="deckInfo" style="font-size:0.8rem;color:#888;text-align:center"></div>
+  <div id="hostControls" style="display:none;text-align:center">
+    <button class="btn" style="max-width:300px" onclick="startGame()">Start Game</button>
+    <div class="status-msg" id="startStatus"></div>
+  </div>
+  <div id="guestWait" style="display:none;text-align:center;color:#888;font-size:0.8rem" class="pulse">Waiting for host to start...</div>
+</div>
+
+<!-- ===== GAME SCREEN ===== -->
+<div id="gameScreen">
+  <div class="game-header">
+    <h1>Cards Against Everyone</h1>
+    <div class="phase-indicator" id="phaseIndicator">—</div>
+    <div class="scores" id="scoresArea"></div>
+  </div>
+
+  <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:flex-start">
+    <div>
+      <div style="font-size:0.7rem;letter-spacing:0.15em;color:#888;margin-bottom:0.5rem">ROUND <span id="roundNum">1</span></div>
+      <div class="black-card-area">
+        <div class="black-card-text" id="blackCardDisplay">—</div>
+      </div>
+      <div style="margin-top:0.75rem;font-size:0.8rem;color:#888" id="czarLabel"></div>
+    </div>
+
+    <div class="game-main" style="flex:1;min-width:300px">
+      <!-- Left panel: type / status -->
+      <div class="phase-box" id="leftPanel">
+        <h2 id="leftTitle">Submit Your Answer</h2>
+        <div id="leftContent"></div>
+      </div>
+
+      <!-- Right panel: submissions -->
+      <div class="phase-box" id="rightPanel">
+        <h2 id="rightTitle">Submissions</h2>
+        <div class="submissions-grid" id="submissionsArea"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  STATE
+// ============================================================
+let peer = null;
+let myId = '';
+let myName = '';
+let isHost = false;
+let roomCode = '';
+let connections = {}; // peerId -> conn (host side)
+let hostConn = null;  // guest -> host conn
+
+// Game state (host is authoritative)
+let players = [];   // [{id, name, score}]
+let deck = null;
+let gameState = null; // {phase, round, blackCard, czarIndex, submissions: {id->text}, revealed}
+
+const DEMO_DECK = {
+  name: "Demo Deck",
+  blackCards: [
+    "Why is everyone at this party so ___?",
+    "My therapist says I have an unhealthy obsession with ___.",
+    "In a post-apocalyptic world, the only currency is ___.",
+    "___ is my love language.",
+    "The worst part about working from home is ___.",
+    "They say the secret to a happy marriage is ___.",
+    "Scientists have discovered that ___ is actually good for you.",
+    "I owe my entire career to ___.",
+    "During the apocalypse, I will survive by using ___ as a weapon.",
+    "New dating app idea: Tinder but for people who enjoy ___."
+  ],
+  whiteCardHints: ["My student loans","Aggressive eye contact","A passive-aggressive note","Uncontrollable sobbing","Forgetting my own name"]
+};
+
+// ============================================================
+//  NAVIGATION
+// ============================================================
+function showScreen(id) {
+  ['lobby','deckBuilder','waitingRoom','gameScreen'].forEach(s => {
+    const el = document.getElementById(s);
+    el.classList.remove('active');
+    el.style.display = 'none';
+  });
+  const target = document.getElementById(id);
+  target.style.display = 'flex';
+  target.classList.add('active');
+  target.classList.add('fade-in');
+}
+function showLobby() { showScreen('lobby'); }
+function showDeckBuilder() { showScreen('deckBuilder'); }
+
+// ============================================================
+//  DECK BUILDER
+// ============================================================
+let builderDeck = { name: 'My Deck', blackCards: [], whiteCardHints: [] };
+
+document.getElementById('newBlack').addEventListener('keydown', e => { if(e.key==='Enter') addBlackCard(); });
+document.getElementById('newWhite').addEventListener('keydown', e => { if(e.key==='Enter') addWhiteCard(); });
+
+function addBlackCard() {
+  const inp = document.getElementById('newBlack');
+  const txt = inp.value.trim();
+  if (!txt) return;
+  builderDeck.blackCards.push(txt);
+  inp.value = '';
+  renderBuilderLists();
+}
+function addWhiteCard() {
+  const inp = document.getElementById('newWhite');
+  const txt = inp.value.trim();
+  if (!txt) return;
+  builderDeck.whiteCardHints.push(txt);
+  inp.value = '';
+  renderBuilderLists();
+}
+
+function renderBuilderLists() {
+  const bl = document.getElementById('blackCardList');
+  const wl = document.getElementById('whiteCardList');
+  bl.innerHTML = builderDeck.blackCards.map((c,i) =>
+    `<div class="card-item"><span>${escHtml(c)}</span><span class="del" onclick="delCard('black',${i})">×</span></div>`
+  ).join('');
+  wl.innerHTML = builderDeck.whiteCardHints.map((c,i) =>
+    `<div class="card-item"><span>${escHtml(c)}</span><span class="del" onclick="delCard('white',${i})">×</span></div>`
+  ).join('');
+  document.getElementById('blackCount').textContent = builderDeck.blackCards.length + ' cards';
+  document.getElementById('whiteCount').textContent = builderDeck.whiteCardHints.length + ' hints';
+}
+function delCard(type, idx) {
+  if (type==='black') builderDeck.blackCards.splice(idx,1);
+  else builderDeck.whiteCardHints.splice(idx,1);
+  renderBuilderLists();
+}
+function downloadDeck() {
+  builderDeck.name = document.getElementById('deckName').value || 'My Deck';
+  const blob = new Blob([JSON.stringify(builderDeck, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = builderDeck.name.replace(/\s+/g,'_') + '.json';
+  a.click();
+}
+function loadDeckForEdit(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const d = JSON.parse(e.target.result);
+      builderDeck = {
+        name: d.name || 'My Deck',
+        blackCards: d.blackCards || [],
+        whiteCardHints: d.whiteCardHints || []
+      };
+      document.getElementById('deckName').value = builderDeck.name;
+      renderBuilderLists();
+    } catch { alert('Invalid JSON file'); }
+  };
+  reader.readAsText(file);
+}
+
+// ============================================================
+//  PEER SETUP
+// ============================================================
+function initPeer(id) {
+  return new Promise((resolve, reject) => {
+    const p = new Peer(id, { debug: 0 });
+    p.on('open', id => resolve(p));
+    p.on('error', err => reject(err));
+  });
+}
+
+// ============================================================
+//  CREATE ROOM
+// ============================================================
+async function createRoom() {
+  myName = document.getElementById('playerName').value.trim() || 'Host';
+  isHost = true;
+  roomCode = Math.random().toString(36).substr(2,6).toUpperCase();
+
+  // Load deck
+  const fileInput = document.getElementById('deckUploadCreate');
+  if (fileInput.files[0]) {
+    deck = await readJsonFile(fileInput.files[0]);
+  } else {
+    deck = DEMO_DECK;
+  }
+
+  try {
+    peer = await initPeer('cae-' + roomCode);
+    myId = peer.id;
+    players = [{ id: myId, name: myName, score: 0 }];
+
+    peer.on('connection', conn => {
+      conn.on('open', () => {
+        connections[conn.peer] = conn;
+        conn.on('data', d => handleHostReceive(conn.peer, d));
+        conn.on('close', () => {
+          delete connections[conn.peer];
+          players = players.filter(p => p.id !== conn.peer);
+          broadcastToAll({ type: 'playerList', players });
+          updateWaitingRoom();
+        });
+      });
+    });
+
+    showScreen('waitingRoom');
+    document.getElementById('roomCodeDisplay').textContent = roomCode;
+    document.getElementById('hostControls').style.display = 'block';
+    document.getElementById('guestWait').style.display = 'none';
+    document.getElementById('deckInfo').textContent = `Deck: "${deck.name}" · ${deck.blackCards.length} black cards`;
+    updateWaitingRoom();
+  } catch(e) {
+    alert('Failed to create room: ' + e);
+  }
+}
+
+// ============================================================
+//  JOIN ROOM
+// ============================================================
+async function joinRoom() {
+  myName = document.getElementById('playerName').value.trim() || 'Player';
+  const code = document.getElementById('joinCode').value.trim().toUpperCase();
+  if (!code) { setStatus('joinStatus','Enter a room code','err'); return; }
+
+  isHost = false;
+  roomCode = code;
+
+  setStatus('joinStatus','Connecting...','');
+  try {
+    peer = await initPeer(undefined);
+    myId = peer.id;
+    hostConn = peer.connect('cae-' + code, { reliable: true });
+    hostConn.on('open', () => {
+      hostConn.send({ type: 'join', name: myName });
+      hostConn.on('data', d => handleGuestReceive(d));
+      hostConn.on('close', () => { alert('Disconnected from host'); showLobby(); });
+      setStatus('joinStatus','Connected!','ok');
+      showScreen('waitingRoom');
+      document.getElementById('roomCodeDisplay').textContent = code;
+      document.getElementById('hostControls').style.display = 'none';
+      document.getElementById('guestWait').style.display = 'block';
+    });
+    hostConn.on('error', e => setStatus('joinStatus','Error: '+e,'err'));
+  } catch(e) {
+    setStatus('joinStatus','Failed: '+e,'err');
+  }
+}
+
+// ============================================================
+//  HOST: receive from guest
+// ============================================================
+function handleHostReceive(fromId, data) {
+  switch(data.type) {
+    case 'join':
+      players.push({ id: fromId, name: data.name, score: 0 });
+      broadcastToAll({ type: 'playerList', players });
+      // send deck
+      connections[fromId].send({ type: 'deckData', deck });
+      if (gameState) connections[fromId].send({ type: 'gameState', state: gameState, players });
+      updateWaitingRoom();
+      break;
+    case 'submit':
+      if (gameState && gameState.phase === 'submitting') {
+        gameState.submissions[fromId] = data.text;
+        checkAllSubmitted();
+      }
+      break;
+    case 'pick':
+      if (gameState && gameState.phase === 'picking') {
+        const czar = players[gameState.czarIndex];
+        if (fromId === czar.id) {
+          resolveRound(data.winnerId);
+        }
+      }
+      break;
+  }
+}
+
+// ============================================================
+//  GUEST: receive from host
+// ============================================================
+function handleGuestReceive(data) {
+  switch(data.type) {
+    case 'playerList':
+      players = data.players;
+      updateWaitingRoom();
+      break;
+    case 'deckData':
+      deck = data.deck;
+      document.getElementById('deckInfo').textContent = `Deck: "${deck.name}" · ${deck.blackCards.length} black cards`;
+      break;
+    case 'gameState':
+      players = data.players || players;
+      gameState = data.state;
+      renderGame();
+      break;
+    case 'roundResult':
+      showRoundResult(data);
+      break;
+  }
+}
+
+// ============================================================
+//  WAITING ROOM UI
+// ============================================================
+function updateWaitingRoom() {
+  const list = document.getElementById('playerList');
+  list.innerHTML = players.map(p =>
+    `<div class="player-chip ${p.id===myId?'host':''}">${escHtml(p.name)}${p.id===players[0].id?' 👑':''}</div>`
+  ).join('');
+}
+function copyCode() {
+  navigator.clipboard.writeText(roomCode);
+  const el = document.getElementById('roomCodeDisplay');
+  el.style.color = 'var(--gold)';
+  setTimeout(() => el.style.color = '', 800);
+}
+
+// ============================================================
+//  START GAME
+// ============================================================
+function startGame() {
+  if (!isHost) return;
+  if (players.length < 2) { setStatus('startStatus','Need at least 2 players','err'); return; }
+  if (!deck || deck.blackCards.length === 0) { setStatus('startStatus','No black cards in deck!','err'); return; }
+
+  deck._remaining = [...deck.blackCards].sort(() => Math.random()-0.5);
+
+  gameState = {
+    phase: 'submitting',
+    round: 1,
+    czarIndex: 0,
+    blackCard: deck._remaining.pop(),
+    submissions: {},
+    revealed: false
+  };
+  // Host auto-skips submitting if czar
+  broadcastGameState();
+  showScreen('gameScreen');
+  renderGame();
+}
+
+// ============================================================
+//  GAME RENDERING
+// ============================================================
+function renderGame() {
+  if (!gameState) return;
+  if (!document.getElementById('gameScreen').classList.contains('active')) {
+    showScreen('gameScreen');
+  }
+
+  // Scores
+  const scoresHtml = players.map(p => {
+    const isCzar = players[gameState.czarIndex]?.id === p.id;
+    const isMe = p.id === myId;
+    return `<div class="score-chip ${isCzar?'czar':''} ${isMe?'me':''}">${escHtml(p.name)}: ${p.score}${isCzar?' 👁':''}</div>`;
+  }).join('');
+  document.getElementById('scoresArea').innerHTML = scoresHtml;
+  document.getElementById('roundNum').textContent = gameState.round;
+
+  // Black card
+  const bcText = gameState.blackCard || '—';
+  document.getElementById('blackCardDisplay').innerHTML = renderBlankText(bcText);
+
+  // Czar label
+  const czar = players[gameState.czarIndex];
+  const amCzar = czar && czar.id === myId;
+  document.getElementById('czarLabel').innerHTML = czar
+    ? `<span class="czar-badge">CARD CZAR</span> ${escHtml(czar.name)}`
+    : '';
+
+  // Phase indicator
+  const phaseLabels = { submitting: '⏳ Collecting Answers', picking: '⚖️ Czar is Judging', result: '🏆 Round Over' };
+  document.getElementById('phaseIndicator').textContent = phaseLabels[gameState.phase] || '';
+
+  if (gameState.phase === 'submitting') renderSubmittingPhase(amCzar);
+  else if (gameState.phase === 'picking') renderPickingPhase(amCzar);
+  else if (gameState.phase === 'result') renderResultPhase();
+}
+
+function renderSubmittingPhase(amCzar) {
+  const leftTitle = document.getElementById('leftTitle');
+  const leftContent = document.getElementById('leftContent');
+  const rightTitle = document.getElementById('rightTitle');
+  const submissionsArea = document.getElementById('submissionsArea');
+
+  const mySubmission = gameState.submissions[myId];
+  const subCount = Object.keys(gameState.submissions).length;
+  const nonCzarCount = players.filter(p => players[gameState.czarIndex]?.id !== p.id).length;
+
+  rightTitle.textContent = `Submissions (${subCount}/${nonCzarCount})`;
+  submissionsArea.innerHTML = Object.keys(gameState.submissions).map(() =>
+    `<div class="white-card" style="opacity:0.6;display:flex;align-items:center;gap:0.5rem"><span>✓</span> Submitted</div>`
+  ).join('');
+
+  if (amCzar) {
+    leftTitle.textContent = 'You are the Card Czar';
+    leftContent.innerHTML = '<p style="color:#888;font-size:0.85rem">Sit back and wait for the answers to roll in... then pick your favourite.</p>';
+    return;
+  }
+
+  if (mySubmission) {
+    leftTitle.textContent = 'Submitted!';
+    leftContent.innerHTML = `<div class="white-card">${escHtml(mySubmission)}</div><p style="color:#888;font-size:0.8rem;margin-top:0.5rem">Waiting for others...</p>`;
+    return;
+  }
+
+  // Hints
+  let hintsHtml = '';
+  if (deck.whiteCardHints && deck.whiteCardHints.length > 0) {
+    const hints = deck.whiteCardHints.sort(() => Math.random()-0.5).slice(0,3);
+    hintsHtml = `<div style="margin-top:0.75rem"><div style="font-size:0.7rem;color:#666;margin-bottom:0.3rem;letter-spacing:0.1em">HINT TOPICS:</div>${hints.map(h=>`<span style="display:inline-block;background:#222;padding:0.2rem 0.5rem;margin:0.2rem;font-size:0.75rem;cursor:pointer" onclick="useHint('${escAttr(h)}')">${escHtml(h)}</span>`).join('')}</div>`;
+  }
+
+  leftTitle.textContent = 'Your Answer';
+  leftContent.innerHTML = `
+    <textarea id="answerInput" maxlength="200" placeholder="Type your answer..." oninput="updateCharCount(this)">${''}</textarea>
+    <div class="char-count" id="charCount">0/200</div>
+    ${hintsHtml}
+    <button class="btn red" style="margin-top:0.75rem" onclick="submitAnswer()">Submit Answer</button>
+  `;
+  document.getElementById('answerInput').focus();
+}
+
+function useHint(text) {
+  const inp = document.getElementById('answerInput');
+  if (inp) { inp.value = text; updateCharCount(inp); }
+}
+function updateCharCount(el) {
+  const cc = document.getElementById('charCount');
+  if (cc) cc.textContent = el.value.length + '/200';
+}
+
+function renderPickingPhase(amCzar) {
+  const leftTitle = document.getElementById('leftTitle');
+  const leftContent = document.getElementById('leftContent');
+  const rightTitle = document.getElementById('rightTitle');
+  const submissionsArea = document.getElementById('submissionsArea');
+
+  rightTitle.textContent = 'All Answers';
+
+  // Shuffle submissions display
+  const subs = Object.entries(gameState.submissions);
+
+  if (amCzar) {
+    leftTitle.textContent = 'Pick the Best!';
+    leftContent.innerHTML = '<p style="color:#888;font-size:0.85rem">Click an answer on the right to declare the winner.</p>';
+    submissionsArea.innerHTML = subs.map(([id, text]) =>
+      `<div class="white-card selectable" onclick="czarPick('${id}')">${escHtml(text)}</div>`
+    ).join('');
+  } else {
+    leftTitle.textContent = 'Waiting for Czar';
+    leftContent.innerHTML = '<p style="color:#888;font-size:0.85rem" class="pulse">The Card Czar is reviewing answers...</p>';
+    submissionsArea.innerHTML = subs.map(([id, text]) => {
+      const isMe = id === myId;
+      return `<div class="white-card ${isMe?'selected':''}">${escHtml(text)}${isMe?'<span class="card-author">you</span>':''}</div>`;
+    }).join('');
+  }
+}
+
+function renderResultPhase() {
+  const leftTitle = document.getElementById('leftTitle');
+  const leftContent = document.getElementById('leftContent');
+  const rightTitle = document.getElementById('rightTitle');
+  const submissionsArea = document.getElementById('submissionsArea');
+
+  const winner = players.find(p => p.id === gameState.winnerId);
+  const winText = gameState.submissions[gameState.winnerId] || '';
+
+  leftTitle.textContent = '🏆 Round Winner';
+  leftContent.innerHTML = `
+    <div class="round-result">
+      <div style="font-size:0.75rem;letter-spacing:0.15em;color:var(--red);margin-bottom:0.5rem">WINNER: ${escHtml(winner?.name||'?')}</div>
+      <div style="font-size:1rem">"${escHtml(winText)}"</div>
+    </div>
+    ${isHost ? `<button class="btn" style="margin-top:1rem" onclick="nextRound()">Next Round →</button>` : '<p style="color:#888;font-size:0.8rem;margin-top:1rem" class="pulse">Waiting for host to start next round...</p>'}
+  `;
+
+  rightTitle.textContent = 'All Answers';
+  const subs = Object.entries(gameState.submissions);
+  submissionsArea.innerHTML = subs.map(([id, text]) => {
+    const isWinner = id === gameState.winnerId;
+    const p = players.find(pl => pl.id === id);
+    return `<div class="white-card ${isWinner?'winner':''}">${escHtml(text)}<span class="card-author">${escHtml(p?.name||'?')}${isWinner?' 🏆':''}</span></div>`;
+  }).join('');
+}
+
+// ============================================================
+//  GAME LOGIC
+// ============================================================
+function submitAnswer() {
+  const inp = document.getElementById('answerInput');
+  const text = inp?.value.trim();
+  if (!text) return;
+
+  if (isHost) {
+    gameState.submissions[myId] = text;
+    checkAllSubmitted();
+  } else {
+    hostConn.send({ type: 'submit', text });
+    // Optimistically update local state
+    gameState.submissions[myId] = text;
+    renderGame();
+  }
+}
+
+function checkAllSubmitted() {
+  if (!isHost) return;
+  const nonCzar = players.filter(p => players[gameState.czarIndex]?.id !== p.id);
+  const allIn = nonCzar.every(p => gameState.submissions[p.id]);
+  if (allIn) {
+    gameState.phase = 'picking';
+    broadcastGameState();
+    renderGame();
+  } else {
+    broadcastGameState();
+    renderGame();
+  }
+}
+
+function czarPick(winnerId) {
+  if (!isHost) {
+    hostConn.send({ type: 'pick', winnerId });
+    return;
+  }
+  const czar = players[gameState.czarIndex];
+  if (czar?.id !== myId) return;
+  resolveRound(winnerId);
+}
+
+function resolveRound(winnerId) {
+  if (!isHost) return;
+  const winner = players.find(p => p.id === winnerId);
+  if (winner) winner.score++;
+  gameState.phase = 'result';
+  gameState.winnerId = winnerId;
+  broadcastGameState();
+  renderGame();
+}
+
+function nextRound() {
+  if (!isHost) return;
+  if (!deck._remaining || deck._remaining.length === 0) {
+    deck._remaining = [...deck.blackCards].sort(() => Math.random()-0.5);
+  }
+  gameState.czarIndex = (gameState.czarIndex + 1) % players.length;
+  gameState.round++;
+  gameState.phase = 'submitting';
+  gameState.blackCard = deck._remaining.pop();
+  gameState.submissions = {};
+  gameState.winnerId = null;
+  broadcastGameState();
+  renderGame();
+}
+
+// ============================================================
+//  BROADCAST
+// ============================================================
+function broadcastGameState() {
+  broadcastToAll({ type: 'gameState', state: gameState, players });
+}
+function broadcastToAll(data) {
+  Object.values(connections).forEach(c => { try { c.send(data); } catch(e){} });
+}
+
+// ============================================================
+//  HELPERS
+// ============================================================
+function renderBlankText(text) {
+  return escHtml(text).replace(/___/g, '<span class="blank"></span>');
+}
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escAttr(s) { return String(s).replace(/'/g,'&#39;'); }
+function setStatus(id, msg, cls) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status-msg ' + cls;
+}
+function readJsonFile(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = e => { try { resolve(JSON.parse(e.target.result)); } catch { reject('Invalid JSON'); } };
+    r.onerror = reject;
+    r.readAsText(file);
+  });
+}
+
+// Deck upload preview
+document.getElementById('deckUploadCreate').addEventListener('change', async function() {
+  try {
+    const d = await readJsonFile(this.files[0]);
+    setStatus('deckStatus', `Loaded: "${d.name}" · ${d.blackCards?.length||0} black cards`, 'ok');
+  } catch { setStatus('deckStatus','Invalid deck file','err'); }
+});
+</script>
+</body>
+</html>
