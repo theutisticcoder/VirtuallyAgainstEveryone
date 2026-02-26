@@ -449,7 +449,7 @@
       <h2>Create Room</h2>
       <p style="font-size:0.75rem;color:#888;margin-bottom:1rem">You'll be the host & Card Czar first. Upload a deck JSON or use the built-in demo deck.</p>
       <label style="font-size:0.75rem;color:#aaa;display:block;margin-bottom:0.5rem">Upload Deck (JSON)</label>
-      <input type="file" id="deckUploadCreate" accept=".against, .json" style="font-size:0.75rem;padding:0.4rem">
+      <input type="file" id="deckUploadCreate" accept=".against" style="font-size:0.75rem;padding:0.4rem">
       <div class="status-msg" id="deckStatus">No deck loaded — demo deck will be used</div>
       <button class="btn" onclick="createRoom()">Create Room</button>
       <button class="btn outline" onclick="showDeckBuilder()" style="margin-top:0.5rem">Build a Deck First</button>
@@ -506,7 +506,7 @@
 
   <div style="margin-top:0.5rem">
     <label style="font-size:0.75rem;color:#aaa;display:block;margin-bottom:0.3rem">Load existing JSON to edit</label>
-    <input type="file" id="deckUploadEdit" accept=".json" onchange="loadDeckForEdit(this)" style="font-size:0.75rem;padding:0.4rem">
+    <input type="file" id="deckUploadEdit" accept=".against" onchange="loadDeckForEdit(this)" style="font-size:0.75rem;padding:0.4rem">
   </div>
 </div>
 
