@@ -449,7 +449,7 @@
       <h2>Create Room</h2>
       <p style="font-size:0.75rem;color:#888;margin-bottom:1rem">You'll be the host & Card Czar first. Upload a deck JSON or use the built-in demo deck.</p>
       <label style="font-size:0.75rem;color:#aaa;display:block;margin-bottom:0.5rem">Upload Deck (JSON)</label>
-      <input type="file" id="deckUploadCreate" accept=".json" style="font-size:0.75rem;padding:0.4rem">
+      <input type="file" id="deckUploadCreate" accept=".against, .json" style="font-size:0.75rem;padding:0.4rem">
       <div class="status-msg" id="deckStatus">No deck loaded — demo deck will be used</div>
       <button class="btn" onclick="createRoom()">Create Room</button>
       <button class="btn outline" onclick="showDeckBuilder()" style="margin-top:0.5rem">Build a Deck First</button>
@@ -470,7 +470,7 @@
   <div class="deck-header">
     <h1>Deck Builder</h1>
     <button class="btn outline" style="width:auto;padding:0.5rem 1rem" onclick="showLobby()">← Back</button>
-    <button class="btn" style="width:auto;padding:0.5rem 1rem" onclick="downloadDeck()">Download JSON</button>
+    <button class="btn" style="width:auto;padding:0.5rem 1rem" onclick="downloadDeck()">Download Deck</button>
   </div>
 
   <div style="max-width:400px">
@@ -659,7 +659,7 @@ function downloadDeck() {
   const blob = new Blob([JSON.stringify(builderDeck, null, 2)], {type:'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = builderDeck.name.replace(/\s+/g,'_') + '.json';
+  a.download = builderDeck.name.replace(/\s+/g,'_') + '.against';
   a.click();
 }
 function loadDeckForEdit(input) {
