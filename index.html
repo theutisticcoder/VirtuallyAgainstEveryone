@@ -698,7 +698,8 @@ function initPeer(id) {
 async function createRoom() {
   myName = document.getElementById('playerName').value.trim() || 'Host';
   isHost = true;
-  roomCode = Math.random().toString(36).substr(2,6).toUpperCase();
+  var text="123456789abcdefghijklmnpqrstuvwxyz"
+  for(let i = 0; i < 6; i++) roomCode += text[Math.floor(Math,random()*text.length)]
 
   // Load deck
   const fileInput = document.getElementById('deckUploadCreate');
