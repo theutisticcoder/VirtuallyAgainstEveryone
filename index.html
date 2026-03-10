@@ -569,6 +569,8 @@ let deck = null;
 let gameState = null;
 let myHand = [];
 let whiteCardPool = [];
+let lastRenderedState = null; // Track last render to prevent flicker
+let lastRenderedGame = false;
 
 const DEMO_DECK = {
   name: "Demo Deck",
@@ -808,14 +810,20 @@ async function joinRoom() {
 }
 
 function setupGuestListening() {
+  let lastUpdate = 0;
   setInterval(() => {
     const msgKey = 'cae-broadcast-' + roomCode;
     const msgStr = localStorage.getItem(msgKey);
     if (msgStr) {
-      const data = JSON.parse(msgStr);
-      handleGuestReceive(data);
+      const now = Date.now();
+      // Debounce: only process updates every 300ms
+      if (now - lastUpdate > 300) {
+        const data = JSON.parse(msgStr);
+        handleGuestReceive(data);
+        lastUpdate = now;
+      }
     }
-  }, 200);
+  }, 100);
 }
 
 // ============================================================
@@ -830,10 +838,12 @@ function handleGuestReceive(data) {
     case 'gameState':
       players = data.players || players;
       gameState = data.state;
+      lastRenderedGame = false; // Force re-render on new game state
       renderGame();
       break;
     case 'handUpdate':
       myHand = data.hand;
+      lastRenderedGame = false; // Force re-render on hand change
       renderGame();
       break;
   }
@@ -847,6 +857,7 @@ function broadcastToAll(data) {
 }
 
 function broadcastGameState() {
+  lastRenderedGame = false; // Force re-render when state is broadcasted
   broadcastToAll({ type: 'gameState', state: gameState, players });
 }
 
@@ -906,6 +917,12 @@ function startGame() {
 // ============================================================
 function renderGame() {
   if (!gameState) return;
+  
+  // Only render if state has actually changed
+  const stateStr = JSON.stringify(gameState);
+  if (lastRenderedState === stateStr && lastRenderedGame) return;
+  lastRenderedState = stateStr;
+  
   if (!document.getElementById('gameScreen').classList.contains('active')) {
     showScreen('gameScreen');
   }
@@ -933,6 +950,8 @@ function renderGame() {
   if (gameState.phase === 'submitting') renderSubmittingPhase(amCzar);
   else if (gameState.phase === 'picking') renderPickingPhase(amCzar);
   else if (gameState.phase === 'result') renderResultPhase();
+  
+  lastRenderedGame = true;
 }
 
 function renderSubmittingPhase(amCzar) {
