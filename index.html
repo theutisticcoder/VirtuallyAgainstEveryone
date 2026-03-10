@@ -574,9 +574,11 @@ let connections = {}; // peerId -> conn (host side)
 let hostConn = null;  // guest -> host conn
 
 // Game state (host is authoritative)
-let players = [];   // [{id, name, score}]
+let players = [];   // [{id, name, score, hand: []}]
 let deck = null;
 let gameState = null; // {phase, round, blackCard, czarIndex, submissions: {id->text}, revealed}
+let myHand = [];      // Player's current hand of white cards
+let whiteCardPool = []; // Pool of remaining white cards to draw from
 
 const DEMO_DECK = {
   name: "Demo Deck",
@@ -708,10 +710,14 @@ async function createRoom() {
     deck = DEMO_DECK;
   }
 
+  // Initialize white card pool
+  whiteCardPool = [...deck.whiteCardHints].sort(() => Math.random()-0.5);
+
   try {
     peer = await initPeer('cae-' + roomCode);
     myId = peer.id;
-    players = [{ id: myId, name: myName, score: 0 }];
+    players = [{ id: myId, name: myName, score: 0, hand: drawCards(10) }];
+    myHand = players[0].hand;
 
     peer.on('connection', conn => {
       conn.on('open', () => {
@@ -730,7 +736,7 @@ async function createRoom() {
     document.getElementById('roomCodeDisplay').textContent = roomCode;
     document.getElementById('hostControls').style.display = 'block';
     document.getElementById('guestWait').style.display = 'none';
-    document.getElementById('deckInfo').textContent = `Deck: "${deck.name}" · ${deck.blackCards.length} black cards`;
+    document.getElementById('deckInfo').textContent = `Deck: "${deck.name}" · ${deck.whiteCardHints.length} white cards`;
     updateWaitingRoom();
   } catch(e) {
     alert('Failed to create room: ' + e);
@@ -775,10 +781,11 @@ async function joinRoom() {
 function handleHostReceive(fromId, data) {
   switch(data.type) {
     case 'join':
-      players.push({ id: fromId, name: data.name, score: 0 });
+      const newHand = drawCards(10);
+      players.push({ id: fromId, name: data.name, score: 0, hand: newHand });
       broadcastToAll({ type: 'playerList', players });
-      // send deck
-      connections[fromId].send({ type: 'deckData', deck });
+      // send deck and initial hand
+      connections[fromId].send({ type: 'deckData', deck, hand: newHand });
       if (gameState) connections[fromId].send({ type: 'gameState', state: gameState, players });
       updateWaitingRoom();
       break;
@@ -810,7 +817,8 @@ function handleGuestReceive(data) {
       break;
     case 'deckData':
       deck = data.deck;
-      document.getElementById('deckInfo').textContent = `Deck: "${deck.name}" · ${deck.blackCards.length} black cards`;
+      myHand = data.hand;
+      document.getElementById('deckInfo').textContent = `Deck: "${deck.name}" · ${deck.whiteCardHints.length} white cards`;
       break;
     case 'gameState':
       players = data.players || players;
@@ -819,6 +827,10 @@ function handleGuestReceive(data) {
       break;
     case 'roundResult':
       showRoundResult(data);
+      break;
+    case 'handUpdate':
+      myHand = data.hand;
+      renderGame();
       break;
   }
 }
@@ -840,6 +852,20 @@ function copyCode() {
 }
 
 // ============================================================
+//  CARD MANAGEMENT
+// ============================================================
+function drawCards(count) {
+  const drawn = [];
+  for (let i = 0; i < count; i++) {
+    if (whiteCardPool.length === 0) {
+      whiteCardPool = [...deck.whiteCardHints].sort(() => Math.random()-0.5);
+    }
+    drawn.push(whiteCardPool.pop());
+  }
+  return drawn;
+}
+
+// ============================================================
 //  START GAME
 // ============================================================
 function startGame() {
@@ -857,7 +883,6 @@ function startGame() {
     submissions: {},
     revealed: false
   };
-  // Host auto-skips submitting if czar
   broadcastGameState();
   showScreen('gameScreen');
   renderGame();
@@ -928,30 +953,15 @@ function renderSubmittingPhase(amCzar) {
     return;
   }
 
-  // Check if white cards are forced options
-  const hasWhiteCards = deck.whiteCardHints && deck.whiteCardHints.length > 0;
-
-  if (hasWhiteCards) {
-    // White cards are the ONLY options - force selection
-    leftTitle.textContent = 'Pick Your Answer';
-    leftContent.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:0.5rem">
-        ${deck.whiteCardHints.map(card => `
-          <div class="white-card selectable" style="cursor:pointer" onclick="submitAnswer('${escAttr(card)}')">${escHtml(card)}</div>
-        `).join('')}
-      </div>
-      <p style="color:#888;font-size:0.7rem;margin-top:0.75rem;letter-spacing:0.05em">Select one of the available cards.</p>
-    `;
-  } else {
-    // Free text entry (no hints)
-    leftTitle.textContent = 'Your Answer';
-    leftContent.innerHTML = `
-      <textarea id="answerInput" maxlength="200" placeholder="Type your answer..." oninput="updateCharCount(this)"></textarea>
-      <div class="char-count" id="charCount">0/200</div>
-      <button class="btn red" style="margin-top:0.75rem" onclick="submitAnswerText()">Submit Answer</button>
-    `;
-    document.getElementById('answerInput').focus();
-  }
+  // Show player's hand
+  leftTitle.textContent = `Your Hand (${myHand.length})`;
+  leftContent.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:0.5rem;max-height:400px;overflow-y:auto">
+      ${myHand.map((card, idx) => `
+        <div class="white-card selectable" style="cursor:pointer" onclick="submitAnswer('${escAttr(card)}')">${escHtml(card)}</div>
+      `).join('')}
+    </div>
+  `;
 }
 
 function updateCharCount(el) {
@@ -1017,24 +1027,12 @@ function renderResultPhase() {
 //  GAME LOGIC
 // ============================================================
 function submitAnswer(text) {
-  // Called when clicking a white card option
+  // Called when clicking a white card from hand
   if (!text) return;
 
-  if (isHost) {
-    gameState.submissions[myId] = text;
-    checkAllSubmitted();
-  } else {
-    hostConn.send({ type: 'submit', text });
-    gameState.submissions[myId] = text;
-    renderGame();
-  }
-}
-
-function submitAnswerText() {
-  // Called when submitting free text
-  const inp = document.getElementById('answerInput');
-  const text = inp?.value.trim();
-  if (!text) return;
+  // Remove from hand
+  const idx = myHand.indexOf(text);
+  if (idx > -1) myHand.splice(idx, 1);
 
   if (isHost) {
     gameState.submissions[myId] = text;
@@ -1085,6 +1083,12 @@ function nextRound() {
   if (!deck._remaining || deck._remaining.length === 0) {
     deck._remaining = [...deck.blackCards].sort(() => Math.random()-0.5);
   }
+  
+  // Refill hands
+  players.forEach(p => {
+    p.hand = drawCards(10 - p.hand.length);
+  });
+
   gameState.czarIndex = (gameState.czarIndex + 1) % players.length;
   gameState.round++;
   gameState.phase = 'submitting';
@@ -1092,6 +1096,15 @@ function nextRound() {
   gameState.submissions = {};
   gameState.winnerId = null;
   broadcastGameState();
+  
+  // Send updated hands to all guests
+  Object.entries(connections).forEach(([peerId, conn]) => {
+    const player = players.find(p => p.id === peerId);
+    if (player) {
+      conn.send({ type: 'handUpdate', hand: player.hand });
+    }
+  });
+  
   renderGame();
 }
 
