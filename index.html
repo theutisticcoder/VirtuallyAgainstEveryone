@@ -983,12 +983,20 @@ function renderSubmittingPhase(amCzar) {
 
   leftTitle.textContent = `Your Hand (${myHand.length})`;
   leftContent.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:0.5rem;max-height:400px;overflow-y:auto">
+    <div class="hand-container" style="display:flex;flex-direction:column;gap:0.5rem;max-height:400px;overflow-y:auto">
       ${myHand.map((card, idx) => `
-        <div class="white-card selectable" style="cursor:pointer" onclick="submitAnswer(&quot;${escAttr(card)}&quot;)">${escHtml(card)}</div>
+        <div class="white-card selectable hand-card" data-card="${escAttr(card)}" style="cursor:pointer">${escHtml(card)}</div>
       `).join('')}
     </div>
   `;
+  
+  // Attach event listeners
+  document.querySelectorAll('.hand-card').forEach(el => {
+    el.addEventListener('click', (e) => {
+      const card = el.getAttribute('data-card');
+      submitAnswer(card);
+    });
+  });
 }
 
 function renderPickingPhase(amCzar) {
@@ -1004,8 +1012,16 @@ function renderPickingPhase(amCzar) {
     leftTitle.textContent = 'Pick the Best!';
     leftContent.innerHTML = '<p style="color:#888;font-size:0.85rem">Click an answer on the right to declare the winner.</p>';
     submissionsArea.innerHTML = subs.map(([id, text]) =>
-      `<div class="white-card selectable" onclick="czarPick(&quot;${id}&quot;)">${escHtml(text)}</div>`
+      `<div class="white-card selectable czar-choice" data-winner-id="${id}" style="cursor:pointer">${escHtml(text)}</div>`
     ).join('');
+    
+    // Attach event listeners
+    document.querySelectorAll('.czar-choice').forEach(el => {
+      el.addEventListener('click', (e) => {
+        const winnerId = el.getAttribute('data-winner-id');
+        czarPick(winnerId);
+      });
+    });
   } else {
     leftTitle.textContent = 'Waiting for Czar';
     leftContent.innerHTML = '<p style="color:#888;font-size:0.85rem" class="pulse">The Card Czar is reviewing answers...</p>';
