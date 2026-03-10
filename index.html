@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Virtually Against Everyone</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
 
@@ -346,14 +345,8 @@
     margin-bottom: 1rem;
   }
 
-  /* Typing area */
-  .type-area textarea {
-    min-height: 100px;
-    font-size: 1rem;
-  }
   .char-count { font-size: 0.7rem; color: #666; margin-top: 0.3rem; text-align: right; }
 
-  /* Submissions */
   .submissions-grid {
     display: flex;
     flex-direction: column;
@@ -400,7 +393,6 @@
     text-transform: uppercase;
   }
 
-  /* Czar badge */
   .czar-badge {
     background: var(--red);
     color: var(--white);
@@ -410,7 +402,6 @@
     padding: 0.2rem 0.5rem;
   }
 
-  /* Scrollbars */
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: var(--black); }
   ::-webkit-scrollbar-thumb { background: #444; }
@@ -493,10 +484,10 @@
 
     <!-- White Cards -->
     <div>
-      <div class="col-label white-label">⬜ White Card Topics (Optional)</div>
-      <div class="blank-hint">Optional seed topics shown as hints. Players still type their own answers.</div>
+      <div class="col-label white-label">⬜ White Cards</div>
+      <div class="blank-hint">Cards that players can play from their hand.</div>
       <div class="input-row">
-        <input id="newWhite" type="text" placeholder="Add a topic hint...">
+        <input id="newWhite" type="text" placeholder="Add a white card...">
         <button class="btn" onclick="addWhiteCard()">Add</button>
       </div>
       <div class="card-list" id="whiteCardList" style="margin-top:0.75rem"></div>
@@ -565,20 +556,19 @@
 // ============================================================
 //  STATE
 // ============================================================
-let peer = null;
 let myId = '';
 let myName = '';
 let isHost = false;
 let roomCode = '';
-let connections = {}; // peerId -> conn (host side)
-let hostConn = null;  // guest -> host conn
+let guestConnections = {}; // peerId -> channel (host side)
+let hostChannel = null;      // guest -> host channel
 
 // Game state (host is authoritative)
 let players = [];   // [{id, name, score, hand: []}]
 let deck = null;
-let gameState = null; // {phase, round, blackCard, czarIndex, submissions: {id->text}, revealed}
-let myHand = [];      // Player's current hand of white cards
-let whiteCardPool = []; // Pool of remaining white cards to draw from
+let gameState = null;
+let myHand = [];
+let whiteCardPool = [];
 
 const DEMO_DECK = {
   name: "Demo Deck",
@@ -594,7 +584,10 @@ const DEMO_DECK = {
     "During the apocalypse, I will survive by using ___ as a weapon.",
     "New dating app idea: Tinder but for people who enjoy ___."
   ],
-  whiteCardHints: ["My student loans","Aggressive eye contact","A passive-aggressive note","Uncontrollable sobbing","Forgetting my own name"]
+  whiteCardHints: [
+    "My student loans","Aggressive eye contact","A passive-aggressive note","Uncontrollable sobbing","Forgetting my own name",
+    "Flying safely","The unstoppable march of time","Waking up covered in blood","A disappointing breakfast","Reasonable people"
+  ]
 };
 
 // ============================================================
@@ -649,7 +642,7 @@ function renderBuilderLists() {
     `<div class="card-item"><span>${escHtml(c)}</span><span class="del" onclick="delCard('white',${i})">×</span></div>`
   ).join('');
   document.getElementById('blackCount').textContent = builderDeck.blackCards.length + ' cards';
-  document.getElementById('whiteCount').textContent = builderDeck.whiteCardHints.length + ' hints';
+  document.getElementById('whiteCount').textContent = builderDeck.whiteCardHints.length + ' cards';
 }
 function delCard(type, idx) {
   if (type==='black') builderDeck.blackCards.splice(idx,1);
@@ -684,23 +677,13 @@ function loadDeckForEdit(input) {
 }
 
 // ============================================================
-//  PEER SETUP
-// ============================================================
-function initPeer(id) {
-  return new Promise((resolve, reject) => {
-    const p = new Peer(id, { debug: 1 });
-    p.on('open', id => resolve(p));
-    p.on('error', err => reject(err));
-  });
-}
-
-// ============================================================
-//  CREATE ROOM
+//  ROOM CREATION (HOST)
 // ============================================================
 async function createRoom() {
   myName = document.getElementById('playerName').value.trim() || 'Host';
   isHost = true;
   roomCode = Math.random().toString(36).substr(2,6).toUpperCase();
+  myId = 'host-' + roomCode;
 
   // Load deck
   const fileInput = document.getElementById('deckUploadCreate');
@@ -713,38 +696,57 @@ async function createRoom() {
   // Initialize white card pool
   whiteCardPool = [...deck.whiteCardHints].sort(() => Math.random()-0.5);
 
-  try {
-    peer = await initPeer('cae-' + roomCode);
-    myId = peer.id;
-    players = [{ id: myId, name: myName, score: 0, hand: drawCards(10) }];
-    myHand = players[0].hand;
+  // Create a simple room using LocalStorage for signaling
+  players = [{ id: myId, name: myName, score: 0, hand: drawCards(10) }];
+  myHand = players[0].hand;
 
-    peer.on('connection', conn => {
-      conn.on('open', () => {
-        connections[conn.peer] = conn;
-        conn.on('data', d => handleHostReceive(conn.peer, d));
-        conn.on('close', () => {
-          delete connections[conn.peer];
-          players = players.filter(p => p.id !== conn.peer);
-          broadcastToAll({ type: 'playerList', players });
-          updateWaitingRoom();
-        });
-      });
+  // Store room info for guests to discover
+  const roomData = {
+    code: roomCode,
+    hostId: myId,
+    deckName: deck.name,
+    deckWhiteCount: deck.whiteCardHints.length,
+    createdAt: Date.now()
+  };
+  localStorage.setItem('cae-room-' + roomCode, JSON.stringify(roomData));
+
+  showScreen('waitingRoom');
+  document.getElementById('roomCodeDisplay').textContent = roomCode;
+  document.getElementById('hostControls').style.display = 'block';
+  document.getElementById('guestWait').style.display = 'none';
+  document.getElementById('deckInfo').textContent = `Deck: "${deck.name}" · ${deck.whiteCardHints.length} white cards`;
+  updateWaitingRoom();
+
+  // Poll for new guests joining
+  setupHostListening();
+}
+
+function setupHostListening() {
+  setInterval(() => {
+    const guestListKey = 'cae-guests-' + roomCode;
+    const guestListStr = localStorage.getItem(guestListKey) || '[]';
+    const guestList = JSON.parse(guestListStr);
+    
+    guestList.forEach(guestId => {
+      if (!guestConnections[guestId]) {
+        // New guest, add them
+        const newHand = drawCards(10);
+        players.push({ id: guestId, name: guestId, score: 0, hand: newHand });
+        guestConnections[guestId] = true;
+        
+        // Send game data
+        const data = { type: 'deckData', deck, hand: newHand };
+        localStorage.setItem('cae-msg-' + guestId, JSON.stringify(data));
+        
+        broadcastToAll({ type: 'playerList', players });
+        updateWaitingRoom();
+      }
     });
-
-    showScreen('waitingRoom');
-    document.getElementById('roomCodeDisplay').textContent = roomCode;
-    document.getElementById('hostControls').style.display = 'block';
-    document.getElementById('guestWait').style.display = 'none';
-    document.getElementById('deckInfo').textContent = `Deck: "${deck.name}" · ${deck.whiteCardHints.length} white cards`;
-    updateWaitingRoom();
-  } catch(e) {
-    alert('Failed to create room: ' + e);
-  }
+  }, 500);
 }
 
 // ============================================================
-//  JOIN ROOM
+//  JOINING ROOM (GUEST)
 // ============================================================
 async function joinRoom() {
   myName = document.getElementById('playerName').value.trim() || 'Player';
@@ -753,61 +755,71 @@ async function joinRoom() {
 
   isHost = false;
   roomCode = code;
+  myId = 'guest-' + Math.random().toString(36).substr(2,6);
 
   setStatus('joinStatus','Connecting...','');
-  try {
-    peer = await initPeer(undefined);
-    myId = peer.id;
-    hostConn = peer.connect('cae-' + code, { reliable: true });
-    hostConn.on('open', () => {
-      hostConn.send({ type: 'join', name: myName });
-      hostConn.on('data', d => handleGuestReceive(d));
-      hostConn.on('close', () => { alert('Disconnected from host'); showLobby(); });
-      setStatus('joinStatus','Connected!','ok');
-      showScreen('waitingRoom');
-      document.getElementById('roomCodeDisplay').textContent = code;
-      document.getElementById('hostControls').style.display = 'none';
-      document.getElementById('guestWait').style.display = 'block';
-    });
-    hostConn.on('error', e => setStatus('joinStatus','Error: '+e,'err'));
-  } catch(e) {
-    setStatus('joinStatus','Failed: '+e,'err');
+
+  // Check if room exists
+  const roomData = localStorage.getItem('cae-room-' + code);
+  if (!roomData) {
+    setStatus('joinStatus','Room not found','err');
+    return;
   }
+
+  // Register as guest
+  const guestListKey = 'cae-guests-' + code;
+  const guestListStr = localStorage.getItem(guestListKey) || '[]';
+  const guestList = JSON.parse(guestListStr);
+  guestList.push(myId);
+  localStorage.setItem(guestListKey, JSON.stringify(guestList));
+
+  // Wait for host to acknowledge
+  let maxWait = 50;
+  const checkInterval = setInterval(() => {
+    const msgKey = 'cae-msg-' + myId;
+    const msgStr = localStorage.getItem(msgKey);
+    
+    if (msgStr) {
+      clearInterval(checkInterval);
+      const data = JSON.parse(msgStr);
+      
+      if (data.type === 'deckData') {
+        deck = data.deck;
+        myHand = data.hand;
+        setStatus('joinStatus','Connected!','ok');
+        showScreen('waitingRoom');
+        document.getElementById('roomCodeDisplay').textContent = code;
+        document.getElementById('hostControls').style.display = 'none';
+        document.getElementById('guestWait').style.display = 'block';
+        document.getElementById('deckInfo').textContent = `Deck: "${deck.name}" · ${deck.whiteCardHints.length} white cards`;
+        
+        // Listen for updates
+        setupGuestListening();
+      }
+      localStorage.removeItem(msgKey);
+    }
+    
+    maxWait--;
+    if (maxWait <= 0) {
+      clearInterval(checkInterval);
+      setStatus('joinStatus','Connection timeout','err');
+    }
+  }, 100);
+}
+
+function setupGuestListening() {
+  setInterval(() => {
+    const msgKey = 'cae-broadcast-' + roomCode;
+    const msgStr = localStorage.getItem(msgKey);
+    if (msgStr) {
+      const data = JSON.parse(msgStr);
+      handleGuestReceive(data);
+    }
+  }, 200);
 }
 
 // ============================================================
-//  HOST: receive from guest
-// ============================================================
-function handleHostReceive(fromId, data) {
-  switch(data.type) {
-    case 'join':
-      const newHand = drawCards(10);
-      players.push({ id: fromId, name: data.name, score: 0, hand: newHand });
-      broadcastToAll({ type: 'playerList', players });
-      // send deck and initial hand
-      connections[fromId].send({ type: 'deckData', deck, hand: newHand });
-      if (gameState) connections[fromId].send({ type: 'gameState', state: gameState, players });
-      updateWaitingRoom();
-      break;
-    case 'submit':
-      if (gameState && gameState.phase === 'submitting') {
-        gameState.submissions[fromId] = data.text;
-        checkAllSubmitted();
-      }
-      break;
-    case 'pick':
-      if (gameState && gameState.phase === 'picking') {
-        const czar = players[gameState.czarIndex];
-        if (fromId === czar.id) {
-          resolveRound(data.winnerId);
-        }
-      }
-      break;
-  }
-}
-
-// ============================================================
-//  GUEST: receive from host
+//  MESSAGE HANDLING
 // ============================================================
 function handleGuestReceive(data) {
   switch(data.type) {
@@ -815,18 +827,10 @@ function handleGuestReceive(data) {
       players = data.players;
       updateWaitingRoom();
       break;
-    case 'deckData':
-      deck = data.deck;
-      myHand = data.hand;
-      document.getElementById('deckInfo').textContent = `Deck: "${deck.name}" · ${deck.whiteCardHints.length} white cards`;
-      break;
     case 'gameState':
       players = data.players || players;
       gameState = data.state;
       renderGame();
-      break;
-    case 'roundResult':
-      showRoundResult(data);
       break;
     case 'handUpdate':
       myHand = data.hand;
@@ -836,14 +840,26 @@ function handleGuestReceive(data) {
 }
 
 // ============================================================
-//  WAITING ROOM UI
+//  BROADCAST
+// ============================================================
+function broadcastToAll(data) {
+  localStorage.setItem('cae-broadcast-' + roomCode, JSON.stringify(data));
+}
+
+function broadcastGameState() {
+  broadcastToAll({ type: 'gameState', state: gameState, players });
+}
+
+// ============================================================
+//  WAITING ROOM
 // ============================================================
 function updateWaitingRoom() {
   const list = document.getElementById('playerList');
   list.innerHTML = players.map(p =>
-    `<div class="player-chip ${p.id===myId?'host':''}">${escHtml(p.name)}${p.id===players[0].id?' 👑':''}</div>`
+    `<div class="player-chip ${p.id===myId?'host':''}">${escHtml(p.name.split('-')[0])}${p.id===players[0].id?' 👑':''}</div>`
   ).join('');
 }
+
 function copyCode() {
   navigator.clipboard.writeText(roomCode);
   const el = document.getElementById('roomCodeDisplay');
@@ -852,7 +868,7 @@ function copyCode() {
 }
 
 // ============================================================
-//  CARD MANAGEMENT
+//  GAME LOGIC
 // ============================================================
 function drawCards(count) {
   const drawn = [];
@@ -865,9 +881,6 @@ function drawCards(count) {
   return drawn;
 }
 
-// ============================================================
-//  START GAME
-// ============================================================
 function startGame() {
   if (!isHost) return;
   if (players.length < 2) { setStatus('startStatus','Need at least 2 players','err'); return; }
@@ -897,27 +910,23 @@ function renderGame() {
     showScreen('gameScreen');
   }
 
-  // Scores
   const scoresHtml = players.map(p => {
     const isCzar = players[gameState.czarIndex]?.id === p.id;
     const isMe = p.id === myId;
-    return `<div class="score-chip ${isCzar?'czar':''} ${isMe?'me':''}">${escHtml(p.name)}: ${p.score}${isCzar?' 👁':''}</div>`;
+    return `<div class="score-chip ${isCzar?'czar':''} ${isMe?'me':''}">${escHtml(p.name.split('-')[0])}: ${p.score}${isCzar?' 👁':''}</div>`;
   }).join('');
   document.getElementById('scoresArea').innerHTML = scoresHtml;
   document.getElementById('roundNum').textContent = gameState.round;
 
-  // Black card
   const bcText = gameState.blackCard || '—';
   document.getElementById('blackCardDisplay').innerHTML = renderBlankText(bcText);
 
-  // Czar label
   const czar = players[gameState.czarIndex];
   const amCzar = czar && czar.id === myId;
   document.getElementById('czarLabel').innerHTML = czar
-    ? `<span class="czar-badge">CARD CZAR</span> ${escHtml(czar.name)}`
+    ? `<span class="czar-badge">CARD CZAR</span> ${escHtml(czar.name.split('-')[0])}`
     : '';
 
-  // Phase indicator
   const phaseLabels = { submitting: '⏳ Collecting Answers', picking: '⚖️ Czar is Judging', result: '🏆 Round Over' };
   document.getElementById('phaseIndicator').textContent = phaseLabels[gameState.phase] || '';
 
@@ -953,7 +962,6 @@ function renderSubmittingPhase(amCzar) {
     return;
   }
 
-  // Show player's hand
   leftTitle.textContent = `Your Hand (${myHand.length})`;
   leftContent.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:0.5rem;max-height:400px;overflow-y:auto">
@@ -964,11 +972,6 @@ function renderSubmittingPhase(amCzar) {
   `;
 }
 
-function updateCharCount(el) {
-  const cc = document.getElementById('charCount');
-  if (cc) cc.textContent = el.value.length + '/200';
-}
-
 function renderPickingPhase(amCzar) {
   const leftTitle = document.getElementById('leftTitle');
   const leftContent = document.getElementById('leftContent');
@@ -976,8 +979,6 @@ function renderPickingPhase(amCzar) {
   const submissionsArea = document.getElementById('submissionsArea');
 
   rightTitle.textContent = 'All Answers';
-
-  // Shuffle submissions display
   const subs = Object.entries(gameState.submissions);
 
   if (amCzar) {
@@ -1008,7 +1009,7 @@ function renderResultPhase() {
   leftTitle.textContent = '🏆 Round Winner';
   leftContent.innerHTML = `
     <div class="round-result">
-      <div style="font-size:0.75rem;letter-spacing:0.15em;color:var(--red);margin-bottom:0.5rem">WINNER: ${escHtml(winner?.name||'?')}</div>
+      <div style="font-size:0.75rem;letter-spacing:0.15em;color:var(--red);margin-bottom:0.5rem">WINNER: ${escHtml(winner?.name.split('-')[0]||'?')}</div>
       <div style="font-size:1rem">"${escHtml(winText)}"</div>
     </div>
     ${isHost ? `<button class="btn" style="margin-top:1rem" onclick="nextRound()">Next Round →</button>` : '<p style="color:#888;font-size:0.8rem;margin-top:1rem" class="pulse">Waiting for host to start next round...</p>'}
@@ -1019,28 +1020,25 @@ function renderResultPhase() {
   submissionsArea.innerHTML = subs.map(([id, text]) => {
     const isWinner = id === gameState.winnerId;
     const p = players.find(pl => pl.id === id);
-    return `<div class="white-card ${isWinner?'winner':''}">${escHtml(text)}<span class="card-author">${escHtml(p?.name||'?')}${isWinner?' 🏆':''}</span></div>`;
+    return `<div class="white-card ${isWinner?'winner':''}">${escHtml(text)}<span class="card-author">${escHtml(p?.name.split('-')[0]||'?')}${isWinner?' 🏆':''}</span></div>`;
   }).join('');
 }
 
 // ============================================================
-//  GAME LOGIC
+//  GAMEPLAY ACTIONS
 // ============================================================
 function submitAnswer(text) {
-  // Called when clicking a white card from hand
   if (!text) return;
-
-  // Remove from hand
+  
   const idx = myHand.indexOf(text);
   if (idx > -1) myHand.splice(idx, 1);
 
+  gameState.submissions[myId] = text;
+  
   if (isHost) {
-    gameState.submissions[myId] = text;
     checkAllSubmitted();
   } else {
-    hostConn.send({ type: 'submit', text });
-    gameState.submissions[myId] = text;
-    renderGame();
+    broadcastToAll({ type: 'submit', fromId: myId, text });
   }
 }
 
@@ -1050,22 +1048,17 @@ function checkAllSubmitted() {
   const allIn = nonCzar.every(p => gameState.submissions[p.id]);
   if (allIn) {
     gameState.phase = 'picking';
-    broadcastGameState();
-    renderGame();
-  } else {
-    broadcastGameState();
-    renderGame();
   }
+  broadcastGameState();
+  renderGame();
 }
 
 function czarPick(winnerId) {
-  if (!isHost) {
-    hostConn.send({ type: 'pick', winnerId });
-    return;
+  if (isHost) {
+    resolveRound(winnerId);
+  } else {
+    broadcastToAll({ type: 'pick', fromId: myId, winnerId });
   }
-  const czar = players[gameState.czarIndex];
-  if (czar?.id !== myId) return;
-  resolveRound(winnerId);
 }
 
 function resolveRound(winnerId) {
@@ -1084,7 +1077,6 @@ function nextRound() {
     deck._remaining = [...deck.blackCards].sort(() => Math.random()-0.5);
   }
   
-  // Refill hands
   players.forEach(p => {
     p.hand = drawCards(10 - p.hand.length);
   });
@@ -1095,27 +1087,9 @@ function nextRound() {
   gameState.blackCard = deck._remaining.pop();
   gameState.submissions = {};
   gameState.winnerId = null;
+  
   broadcastGameState();
-  
-  // Send updated hands to all guests
-  Object.entries(connections).forEach(([peerId, conn]) => {
-    const player = players.find(p => p.id === peerId);
-    if (player) {
-      conn.send({ type: 'handUpdate', hand: player.hand });
-    }
-  });
-  
   renderGame();
-}
-
-// ============================================================
-//  BROADCAST
-// ============================================================
-function broadcastGameState() {
-  broadcastToAll({ type: 'gameState', state: gameState, players });
-}
-function broadcastToAll(data) {
-  Object.values(connections).forEach(c => { try { c.send(data); } catch(e){} });
 }
 
 // ============================================================
@@ -1142,7 +1116,6 @@ function readJsonFile(file) {
   });
 }
 
-// Deck upload preview
 document.getElementById('deckUploadCreate').addEventListener('change', async function() {
   try {
     const d = await readJsonFile(this.files[0]);
