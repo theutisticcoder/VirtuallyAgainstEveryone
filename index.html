@@ -636,10 +636,10 @@ function renderBuilderLists() {
   const bl = document.getElementById('blackCardList');
   const wl = document.getElementById('whiteCardList');
   bl.innerHTML = builderDeck.blackCards.map((c,i) =>
-    `<div class="card-item"><span>${escHtml(c)}</span><span class="del" onclick="delCard('black',${i})">×</span></div>`
+    `<div class="card-item"><span>${escHtml(c)}</span><span class="del" onclick="delCard(&quot;black&quot;,${i})">×</span></div>`
   ).join('');
   wl.innerHTML = builderDeck.whiteCardHints.map((c,i) =>
-    `<div class="card-item"><span>${escHtml(c)}</span><span class="del" onclick="delCard('white',${i})">×</span></div>`
+    `<div class="card-item"><span>${escHtml(c)}</span><span class="del" onclick="delCard(&quot;white&quot;,${i})">×</span></div>`
   ).join('');
   document.getElementById('blackCount').textContent = builderDeck.blackCards.length + ' cards';
   document.getElementById('whiteCount').textContent = builderDeck.whiteCardHints.length + ' cards';
@@ -966,7 +966,7 @@ function renderSubmittingPhase(amCzar) {
   leftContent.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:0.5rem;max-height:400px;overflow-y:auto">
       ${myHand.map((card, idx) => `
-        <div class="white-card selectable" style="cursor:pointer" onclick="submitAnswer('${escAttr(card)}')">${escHtml(card)}</div>
+        <div class="white-card selectable" style="cursor:pointer" onclick="submitAnswer(&quot;${escAttr(card)}&quot;)">${escHtml(card)}</div>
       `).join('')}
     </div>
   `;
@@ -985,7 +985,7 @@ function renderPickingPhase(amCzar) {
     leftTitle.textContent = 'Pick the Best!';
     leftContent.innerHTML = '<p style="color:#888;font-size:0.85rem">Click an answer on the right to declare the winner.</p>';
     submissionsArea.innerHTML = subs.map(([id, text]) =>
-      `<div class="white-card selectable" onclick="czarPick('${id}')">${escHtml(text)}</div>`
+      `<div class="white-card selectable" onclick="czarPick(&quot;${id}&quot;)">${escHtml(text)}</div>`
     ).join('');
   } else {
     leftTitle.textContent = 'Waiting for Czar';
