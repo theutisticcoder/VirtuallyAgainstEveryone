@@ -990,10 +990,10 @@ function renderSubmittingPhase(amCzar) {
     </div>
   `;
   
-  // Attach event listeners
+  // Attach event listeners to hand cards
   document.querySelectorAll('.hand-card').forEach(el => {
-    el.addEventListener('click', (e) => {
-      const card = el.getAttribute('data-card');
+    el.addEventListener('click', function() {
+      const card = this.getAttribute('data-card');
       submitAnswer(card);
     });
   });
@@ -1015,10 +1015,10 @@ function renderPickingPhase(amCzar) {
       `<div class="white-card selectable czar-choice" data-winner-id="${id}" style="cursor:pointer">${escHtml(text)}</div>`
     ).join('');
     
-    // Attach event listeners
+    // Attach event listeners to czar choices
     document.querySelectorAll('.czar-choice').forEach(el => {
-      el.addEventListener('click', (e) => {
-        const winnerId = el.getAttribute('data-winner-id');
+      el.addEventListener('click', function() {
+        const winnerId = this.getAttribute('data-winner-id');
         czarPick(winnerId);
       });
     });
@@ -1074,6 +1074,8 @@ function submitAnswer(text) {
     checkAllSubmitted();
   } else {
     broadcastToAll({ type: 'submit', fromId: myId, text });
+    // CRITICAL FIX: Re-render immediately on guest side so UI shows submission
+    renderGame();
   }
 }
 
