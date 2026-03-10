@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Virtually Against Everyone</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
 
@@ -564,15 +565,13 @@
 // ============================================================
 //  STATE
 // ============================================================
+let peer = null;
 let myId = '';
 let myName = '';
 let isHost = false;
 let roomCode = '';
-
-// WebRTC connections
-let peerConnections = {}; // {peerId -> RTCPeerConnection}
-let dataChannels = {};    // {peerId -> RTCDataChannel}
-let hostDataChannel = null; // guest's connection to host
+let connections = {}; // peerId -> conn (host side)
+let hostConn = null;  // guest -> host conn
 
 // Game state (host is authoritative)
 let players = [];   // [{id, name, score, hand: []}]
@@ -580,9 +579,6 @@ let deck = null;
 let gameState = null; // {phase, round, blackCard, czarIndex, submissions: {id->text}, revealed}
 let myHand = [];      // Player's current hand of white cards
 let whiteCardPool = []; // Pool of remaining white cards to draw from
-
-// Signaling (simple: uses localStorage for demo, can be replaced with WebSocket)
-const SIGNAL_STORE = {}; // In-memory store for signaling (for demo)
 
 const DEMO_DECK = {
   name: "Demo Deck",
@@ -688,123 +684,14 @@ function loadDeckForEdit(input) {
 }
 
 // ============================================================
-//  WEBRTC SIGNALING (simplified - uses in-memory store)
+//  PEER SETUP
 // ============================================================
-function genId() {
-  return Math.random().toString(36).substr(2, 9);
-}
-
-async function storeSignal(key, signal) {
-  SIGNAL_STORE[key] = signal;
-}
-
-async function getSignal(key) {
-  let attempts = 0;
-  while (attempts < 100) {
-    if (SIGNAL_STORE[key]) {
-      const sig = SIGNAL_STORE[key];
-      delete SIGNAL_STORE[key];
-      return sig;
-    }
-    await new Promise(r => setTimeout(r, 100));
-    attempts++;
-  }
-  return null;
-}
-
-// ============================================================
-//  WEBRTC PEER CONNECTION
-// ============================================================
-async function createPeerConnection(peerId, initiator = false, onMessage) {
-  const pc = new RTCPeerConnection({
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' }
-    ]
+function initPeer(id) {
+  return new Promise((resolve, reject) => {
+    const p = new Peer(id, { debug: 1 });
+    p.on('open', id => resolve(p));
+    p.on('error', err => reject(err));
   });
-
-  pc.onicecandidate = async (e) => {
-    if (e.candidate) {
-      await storeSignal(`ice-${roomCode}-${myId}-${peerId}`, e.candidate);
-    }
-  };
-
-  pc.onconnectionstatechange = () => {
-    if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-      delete peerConnections[peerId];
-      delete dataChannels[peerId];
-      if (isHost) {
-        players = players.filter(p => p.id !== peerId);
-        broadcastToAll({ type: 'playerList', players });
-        updateWaitingRoom();
-      }
-    }
-  };
-
-  let dc;
-  if (initiator) {
-    dc = pc.createDataChannel('gameData', { ordered: true });
-    setupDataChannel(dc, peerId, onMessage);
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await storeSignal(`offer-${roomCode}-${myId}-${peerId}`, offer);
-    const answer = await getSignal(`answer-${roomCode}-${peerId}-${myId}`);
-    if (answer) await pc.setRemoteDescription(new RTCSessionDescription(answer));
-    let iceCandidate = await getSignal(`ice-${roomCode}-${peerId}-${myId}`);
-    while (iceCandidate) {
-      await pc.addIceCandidate(new RTCIceCandidate(iceCandidate));
-      iceCandidate = await getSignal(`ice-${roomCode}-${peerId}-${myId}`);
-    }
-  } else {
-    pc.ondatachannel = (e) => {
-      setupDataChannel(e.channel, peerId, onMessage);
-    };
-    const offer = await getSignal(`offer-${roomCode}-${peerId}-${myId}`);
-    if (offer) {
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      await storeSignal(`answer-${roomCode}-${myId}-${peerId}`, answer);
-    }
-    let iceCandidate = await getSignal(`ice-${roomCode}-${peerId}-${myId}`);
-    while (iceCandidate) {
-      await pc.addIceCandidate(new RTCIceCandidate(iceCandidate));
-      iceCandidate = await getSignal(`ice-${roomCode}-${peerId}-${myId}`);
-    }
-  }
-
-  peerConnections[peerId] = pc;
-  return pc;
-}
-
-function setupDataChannel(dc, peerId, onMessage) {
-  dc.onopen = () => {
-    dataChannels[peerId] = dc;
-  };
-  dc.onmessage = (e) => {
-    try {
-      const msg = JSON.parse(e.data);
-      onMessage(peerId, msg);
-    } catch (err) {
-      console.error('Failed to parse message:', err);
-    }
-  };
-  dc.onclose = () => {
-    delete dataChannels[peerId];
-  };
-}
-
-function sendToClient(peerId, data) {
-  const dc = dataChannels[peerId];
-  if (dc && dc.readyState === 'open') {
-    dc.send(JSON.stringify(data));
-  }
-}
-
-function sendToHost(data) {
-  if (hostDataChannel && hostDataChannel.readyState === 'open') {
-    hostDataChannel.send(JSON.stringify(data));
-  }
 }
 
 // ============================================================
@@ -813,7 +700,6 @@ function sendToHost(data) {
 async function createRoom() {
   myName = document.getElementById('playerName').value.trim() || 'Host';
   isHost = true;
-  myId = 'host-' + genId();
   roomCode = Math.random().toString(36).substr(2,6).toUpperCase();
 
   // Load deck
@@ -827,46 +713,33 @@ async function createRoom() {
   // Initialize white card pool
   whiteCardPool = [...deck.whiteCardHints].sort(() => Math.random()-0.5);
 
-  players = [{ id: myId, name: myName, score: 0, hand: drawCards(10) }];
-  myHand = players[0].hand;
+  try {
+    peer = await initPeer('cae-' + roomCode);
+    myId = peer.id;
+    players = [{ id: myId, name: myName, score: 0, hand: drawCards(10) }];
+    myHand = players[0].hand;
 
-  showScreen('waitingRoom');
-  document.getElementById('roomCodeDisplay').textContent = roomCode;
-  document.getElementById('hostControls').style.display = 'block';
-  document.getElementById('guestWait').style.display = 'none';
-  document.getElementById('deckInfo').textContent = `Deck: "${deck.name}" · ${deck.whiteCardHints.length} white cards`;
-  updateWaitingRoom();
+    peer.on('connection', conn => {
+      conn.on('open', () => {
+        connections[conn.peer] = conn;
+        conn.on('data', d => handleHostReceive(conn.peer, d));
+        conn.on('close', () => {
+          delete connections[conn.peer];
+          players = players.filter(p => p.id !== conn.peer);
+          broadcastToAll({ type: 'playerList', players });
+          updateWaitingRoom();
+        });
+      });
+    });
 
-  // Start polling for new guests (simple mechanism)
-  pollForGuests();
-}
-
-async function pollForGuests() {
-  while (isHost) {
-    const key = `join-request-${roomCode}`;
-    if (SIGNAL_STORE[key]) {
-      const req = SIGNAL_STORE[key];
-      delete SIGNAL_STORE[key];
-      
-      const guestId = req.id;
-      const guestName = req.name;
-      const newHand = drawCards(10);
-      
-      players.push({ id: guestId, name: guestName, score: 0, hand: newHand });
-      broadcastToAll({ type: 'playerList', players });
-      
-      // Create connection
-      await createPeerConnection(guestId, true, handleHostReceive);
-      
-      // Send deck and hand
-      setTimeout(() => {
-        sendToClient(guestId, { type: 'deckData', deck, hand: newHand });
-        if (gameState) sendToClient(guestId, { type: 'gameState', state: gameState, players });
-      }, 500);
-      
-      updateWaitingRoom();
-    }
-    await new Promise(r => setTimeout(r, 500));
+    showScreen('waitingRoom');
+    document.getElementById('roomCodeDisplay').textContent = roomCode;
+    document.getElementById('hostControls').style.display = 'block';
+    document.getElementById('guestWait').style.display = 'none';
+    document.getElementById('deckInfo').textContent = `Deck: "${deck.name}" · ${deck.whiteCardHints.length} white cards`;
+    updateWaitingRoom();
+  } catch(e) {
+    alert('Failed to create room: ' + e);
   }
 }
 
@@ -880,58 +753,52 @@ async function joinRoom() {
 
   isHost = false;
   roomCode = code;
-  myId = 'guest-' + genId();
 
   setStatus('joinStatus','Connecting...','');
-  
-  // Send join request
-  await storeSignal(`join-request-${code}`, { id: myId, name: myName });
-  
-  // Wait for host response and establish connection
-  const offerKey = `offer-${code}-host-${myId}`;
-  let attempts = 0;
-  while (attempts < 100) {
-    if (SIGNAL_STORE[offerKey]) {
-      try {
-        await createPeerConnection('host', false, handleGuestReceive);
-        setStatus('joinStatus','Connected!','ok');
-        showScreen('waitingRoom');
-        document.getElementById('roomCodeDisplay').textContent = code;
-        document.getElementById('hostControls').style.display = 'none';
-        document.getElementById('guestWait').style.display = 'block';
-        
-        // Send join message to host
-        setTimeout(() => sendToHost({ type: 'join', name: myName }), 500);
-        return;
-      } catch (e) {
-        setStatus('joinStatus','Connection error: '+e,'err');
-        return;
-      }
-    }
-    await new Promise(r => setTimeout(r, 100));
-    attempts++;
+  try {
+    peer = await initPeer(undefined);
+    myId = peer.id;
+    hostConn = peer.connect('cae-' + code, { reliable: true });
+    hostConn.on('open', () => {
+      hostConn.send({ type: 'join', name: myName });
+      hostConn.on('data', d => handleGuestReceive(d));
+      hostConn.on('close', () => { alert('Disconnected from host'); showLobby(); });
+      setStatus('joinStatus','Connected!','ok');
+      showScreen('waitingRoom');
+      document.getElementById('roomCodeDisplay').textContent = code;
+      document.getElementById('hostControls').style.display = 'none';
+      document.getElementById('guestWait').style.display = 'block';
+    });
+    hostConn.on('error', e => setStatus('joinStatus','Error: '+e,'err'));
+  } catch(e) {
+    setStatus('joinStatus','Failed: '+e,'err');
   }
-  setStatus('joinStatus','Connection timeout - host not found','err');
 }
 
 // ============================================================
 //  HOST: receive from guest
 // ============================================================
-function handleHostReceive(peerId, data) {
+function handleHostReceive(fromId, data) {
   switch(data.type) {
     case 'join':
-      // Player already added during pollForGuests
+      const newHand = drawCards(10);
+      players.push({ id: fromId, name: data.name, score: 0, hand: newHand });
+      broadcastToAll({ type: 'playerList', players });
+      // send deck and initial hand
+      connections[fromId].send({ type: 'deckData', deck, hand: newHand });
+      if (gameState) connections[fromId].send({ type: 'gameState', state: gameState, players });
+      updateWaitingRoom();
       break;
     case 'submit':
       if (gameState && gameState.phase === 'submitting') {
-        gameState.submissions[peerId] = data.text;
+        gameState.submissions[fromId] = data.text;
         checkAllSubmitted();
       }
       break;
     case 'pick':
       if (gameState && gameState.phase === 'picking') {
         const czar = players[gameState.czarIndex];
-        if (peerId === czar.id) {
+        if (fromId === czar.id) {
           resolveRound(data.winnerId);
         }
       }
@@ -1171,7 +1038,7 @@ function submitAnswer(text) {
     gameState.submissions[myId] = text;
     checkAllSubmitted();
   } else {
-    sendToHost({ type: 'submit', text });
+    hostConn.send({ type: 'submit', text });
     gameState.submissions[myId] = text;
     renderGame();
   }
@@ -1193,7 +1060,7 @@ function checkAllSubmitted() {
 
 function czarPick(winnerId) {
   if (!isHost) {
-    sendToHost({ type: 'pick', winnerId });
+    hostConn.send({ type: 'pick', winnerId });
     return;
   }
   const czar = players[gameState.czarIndex];
@@ -1219,13 +1086,7 @@ function nextRound() {
   
   // Refill hands
   players.forEach(p => {
-    if (p.id !== myId) {
-      const newCards = drawCards(10 - p.hand.length);
-      p.hand = newCards;
-    } else {
-      const newCards = drawCards(10 - myHand.length);
-      myHand.push(...newCards);
-    }
+    p.hand = drawCards(10 - p.hand.length);
   });
 
   gameState.czarIndex = (gameState.czarIndex + 1) % players.length;
@@ -1237,10 +1098,10 @@ function nextRound() {
   broadcastGameState();
   
   // Send updated hands to all guests
-  Object.keys(dataChannels).forEach(peerId => {
+  Object.entries(connections).forEach(([peerId, conn]) => {
     const player = players.find(p => p.id === peerId);
     if (player) {
-      sendToClient(peerId, { type: 'handUpdate', hand: player.hand });
+      conn.send({ type: 'handUpdate', hand: player.hand });
     }
   });
   
@@ -1254,9 +1115,7 @@ function broadcastGameState() {
   broadcastToAll({ type: 'gameState', state: gameState, players });
 }
 function broadcastToAll(data) {
-  Object.keys(dataChannels).forEach(peerId => {
-    sendToClient(peerId, data);
-  });
+  Object.values(connections).forEach(c => { try { c.send(data); } catch(e){} });
 }
 
 // ============================================================
