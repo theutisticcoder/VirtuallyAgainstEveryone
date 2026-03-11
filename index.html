@@ -888,8 +888,8 @@
     // ============================================================
     function initPeer(id) {
       return new Promise((resolve, reject) => {
-        var p = new Peer();
-        p = p.connect(id);
+        const peer = new Peer({debug: 1});
+        const p = peer.connect(id);
 
         p.on('open', (peerId) => {
           console.log('PeerJS connected with ID:', peerId);
