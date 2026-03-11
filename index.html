@@ -684,20 +684,28 @@ function loadDeckForEdit(input) {
 }
 
 // ============================================================
-//  PEER SETUP
+//  PEER SETUP - METERED SIGNALING SERVER
 // ============================================================
 function initPeer(id) {
   return new Promise((resolve, reject) => {
     const p = new Peer(id, {
-  host: 'vae.metered.live',
-  port: 443,
-  path: '/',
-  secure: true,
-  debug: 1
-});
-
-})
+      host: 'vae.metered.live',
+      port: 443,
+      path: '/',
+      secure: true,
+      debug: 1
+    });
+    p.on('open', id => {
+      console.log('Peer connected with ID:', id);
+      resolve(p);
+    });
+    p.on('error', err => {
+      console.error('Peer error:', err);
+      reject(err);
+    });
+  });
 }
+
 // ============================================================
 //  CREATE ROOM
 // ============================================================
