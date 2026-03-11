@@ -1073,9 +1073,11 @@ function submitAnswer(text) {
   if (isHost) {
     checkAllSubmitted();
   } else {
-    broadcastToAll({ type: 'submit', fromId: myId, text });
     // CRITICAL FIX: Re-render immediately on guest side so UI shows submission
     renderGame();
+        broadcastToAll({ type: 'submit', fromId: myId, text });
+    renderGame();
+
   }
 }
 
