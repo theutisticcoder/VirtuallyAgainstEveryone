@@ -96,7 +96,7 @@
       color: #888;
       margin-top: 0.5rem;
       letter-spacing: 0.2em;
-      text-transform: uppercase;
+      text-transform: lowercase;
     }
 
     .lobby-grid {
@@ -547,7 +547,7 @@
       font-size: 1rem;
       letter-spacing: 0.15em;
       color: var(--red);
-      text-transform: uppercase;
+      text-transform: lowercase;
     }
 
     /* Czar badge */
@@ -655,7 +655,7 @@
         <h2>Join Room</h2>
         <p style="font-size:0.75rem;color:#888;margin-bottom:1rem">Enter the room code shared by the host.</p>
         <input id="joinCode" type="text" placeholder="Room code..." maxlength="8"
-          style="text-transform:uppercase;letter-spacing:0.2em;font-size:1rem">
+          style="text-transform:lowercase;letter-spacing:0.2em;font-size:1rem">
         <button class="btn red" onclick="joinRoom()">Join Room</button>
         <div class="status-msg" id="joinStatus"></div>
       </div>
@@ -916,7 +916,7 @@
     async function createRoom() {
       myName = document.getElementById('playerName').value.trim() || 'Host';
       isHost = true;
-      roomCode = Math.random().toString(36).substr(2, 6).toUpperCase();
+      roomCode = Math.random().toString(36).substr(2, 6).toLowerCase();
 
       // Load deck
       const fileInput = document.getElementById('deckUploadCreate');
@@ -971,7 +971,7 @@
     // ============================================================
     async function joinRoom() {
       myName = document.getElementById('playerName').value.trim() || 'Player';
-      const code = document.getElementById('joinCode').value.trim().toUpperCase();
+      const code = document.getElementById('joinCode').value.trim().toLowerCase();
       if (!code) { setStatus('joinStatus', 'Enter a room code', 'err'); return; }
 
       isHost = false;
