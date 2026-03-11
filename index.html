@@ -884,14 +884,38 @@
     }
 
     // ============================================================
-    //  PEER SETUP
+    //  PEER SETUP - FIXED FOR PROPER WEBRTC
     // ============================================================
     function initPeer(id) {
       return new Promise((resolve, reject) => {
-        const p = new Peer(id);
+        const p = new Peer(id, {
+          host: 'peerjs-server.herokuapp.com',
+          secure: true,
+          port: 443,
+          path: '/',
+          debug: 0
+        });
 
-      })
+        p.on('open', (peerId) => {
+          console.log('PeerJS connected with ID:', peerId);
+          resolve(p);
+        });
+
+        p.on('error', (err) => {
+          console.error('PeerJS error:', err);
+          reject(err);
+        });
+
+        p.on('disconnected', () => {
+          console.log('Peer disconnected from signaling server');
+        });
+
+        p.on('close', () => {
+          console.log('Peer connection closed');
+        });
+      });
     }
+
     // ============================================================
     //  CREATE ROOM
     // ============================================================
@@ -918,14 +942,20 @@
         myHand = players[0].hand;
 
         peer.on('connection', conn => {
+          console.log('Guest connecting:', conn.peer);
           conn.on('open', () => {
+            console.log('Connection opened with:', conn.peer);
             connections[conn.peer] = conn;
             conn.on('data', d => handleHostReceive(conn.peer, d));
             conn.on('close', () => {
+              console.log('Connection closed with:', conn.peer);
               delete connections[conn.peer];
               players = players.filter(p => p.id !== conn.peer);
               broadcastToAll({ type: 'playerList', players });
               updateWaitingRoom();
+            });
+            conn.on('error', (err) => {
+              console.error('Connection error:', err);
             });
           });
         });
@@ -937,7 +967,8 @@
         document.getElementById('deckInfo').textContent = `Deck: "${deck.name}" · ${deck.whiteCardHints.length} white cards`;
         updateWaitingRoom();
       } catch (e) {
-        alert('Failed to create room: ' + e);
+        console.error('Failed to create room:', e);
+        alert('Failed to create room: ' + e.message);
       }
     }
 
@@ -956,20 +987,33 @@
       try {
         peer = await initPeer(undefined);
         myId = peer.id;
+        console.log('Attempting to connect to room:', 'cae-' + code);
+        
         hostConn = peer.connect('cae-' + code, { reliable: true });
+        
         hostConn.on('open', () => {
+          console.log('Connected to host!');
           hostConn.send({ type: 'join', name: myName });
           hostConn.on('data', d => handleGuestReceive(d));
-          hostConn.on('close', () => { alert('Disconnected from host'); showLobby(); });
+          hostConn.on('close', () => { 
+            console.log('Disconnected from host');
+            alert('Disconnected from host'); 
+            showLobby(); 
+          });
           setStatus('joinStatus', 'Connected!', 'ok');
           showScreen('waitingRoom');
           document.getElementById('roomCodeDisplay').textContent = code;
           document.getElementById('hostControls').style.display = 'none';
           document.getElementById('guestWait').style.display = 'block';
         });
-        hostConn.on('error', e => setStatus('joinStatus', 'Error: ' + e, 'err'));
+        
+        hostConn.on('error', (e) => {
+          console.error('Connection error:', e);
+          setStatus('joinStatus', 'Error: ' + e.message, 'err');
+        });
       } catch (e) {
-        setStatus('joinStatus', 'Failed: ' + e, 'err');
+        console.error('Failed to join room:', e);
+        setStatus('joinStatus', 'Failed: ' + e.message, 'err');
       }
     }
 
@@ -979,6 +1023,7 @@
     function handleHostReceive(fromId, data) {
       switch (data.type) {
         case 'join':
+          console.log('Player joining:', data.name);
           const newHand = drawCards(10);
           players.push({ id: fromId, name: data.name, score: 0, hand: newHand });
           broadcastToAll({ type: 'playerList', players });
