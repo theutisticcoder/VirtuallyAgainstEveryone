@@ -688,10 +688,14 @@ function loadDeckForEdit(input) {
 // ============================================================
 function initPeer(id) {
   return new Promise((resolve, reject) => {
-    const p = new Peer(id, { debug: 1 });
-    p.on('open', id => resolve(p));
-    p.on('error', err => reject(err));
-  });
+    const p = new Peer(id, {
+  host: 'vae.metered.live',
+  port: 443,
+  path: '/',
+  secure: true,
+  debug: 1
+});
+
 }
 
 // ============================================================
