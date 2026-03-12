@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Virtually Against Everyone</title>
-  <script src="https://cdn.metered.live/turn-server.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
 
@@ -884,35 +884,35 @@
     }
 
     // ============================================================
-    //  METERED LIVE SETUP
+    //  PEER SETUP - FIXED FOR PROPER WEBRTC
     // ============================================================
-    let turnServer = null;
-
-    function initTurnServer() {
+    function initPeer(id) {
       return new Promise((resolve, reject) => {
-        turnServer = new MeteredTurnServer({
-          debug: 1,
-          server: 'wss://turn.metered.live',
-          username: 'cae-' + roomCode,
-          password: 'cae-' + roomCode
+        const p = new Peer(id, {debug: 1});
+
+        p.on('open', (peerId) => {
+          console.log('PeerJS connected with ID:', peerId);
+          resolve(p);
         });
 
-        turnServer.on('open', () => {
-          console.log('Metered Turn Server connected');
-          resolve(turnServer);
-        });
-
-        turnServer.on('error', (err) => {
-          console.error('Metered Turn Server error:', err);
+        p.on('error', (err) => {
+          console.error('PeerJS error:', err);
           reject(err);
         });
 
-        turnServer.on('close', () => {
-          console.log('Metered Turn Server closed');
+        p.on('disconnected', () => {
+          console.log('Peer disconnected from signaling server');
+        });
+
+        p.on('close', () => {
+          console.log('Peer connection closed');
         });
       });
     }
 
+    // ============================================================
+    //  CREATE ROOM
+    // ============================================================
     async function createRoom() {
       myName = document.getElementById('playerName').value.trim() || 'Host';
       isHost = true;
@@ -930,7 +930,7 @@
       whiteCardPool = [...deck.whiteCardHints].sort(() => Math.random() - 0.5);
 
       try {
-        peer = await initTurnServer();
+        peer = await initPeer('cae-' + roomCode);
         myId = peer.id;
         players = [{ id: myId, name: myName, score: 0, hand: drawCards(10) }];
         myHand = players[0].hand;
@@ -966,6 +966,9 @@
       }
     }
 
+    // ============================================================
+    //  JOIN ROOM
+    // ============================================================
     async function joinRoom() {
       myName = document.getElementById('playerName').value.trim() || 'Player';
       const code = document.getElementById('joinCode').value.trim().toLowerCase();
@@ -976,7 +979,7 @@
 
       setStatus('joinStatus', 'Connecting...', '');
       try {
-        peer = await initTurnServer();
+        peer = await initPeer(undefined);
         myId = peer.id;
         console.log('Attempting to connect to room:', 'cae-' + code);
         
@@ -1086,7 +1089,44 @@
     }
 
     // ============================================================
-    //  GAME SCREEN
+    //  CARD MANAGEMENT
+    // ============================================================
+    function drawCards(count) {
+      const drawn = [];
+      for (let i = 0; i < count; i++) {
+        if (whiteCardPool.length === 0) {
+          whiteCardPool = [...deck.whiteCardHints].sort(() => Math.random() - 0.5);
+        }
+        drawn.push(whiteCardPool.pop());
+      }
+      return drawn;
+    }
+
+    // ============================================================
+    //  START GAME
+    // ============================================================
+    function startGame() {
+      if (!isHost) return;
+      if (players.length < 2) { setStatus('startStatus', 'Need at least 2 players', 'err'); return; }
+      if (!deck || deck.blackCards.length === 0) { setStatus('startStatus', 'No black cards in deck!', 'err'); return; }
+
+      deck._remaining = [...deck.blackCards].sort(() => Math.random() - 0.5);
+
+      gameState = {
+        phase: 'submitting',
+        round: 1,
+        czarIndex: 0,
+        blackCard: deck._remaining.pop(),
+        submissions: {},
+        revealed: false
+      };
+      broadcastGameState();
+      showScreen('gameScreen');
+      renderGame();
+    }
+
+    // ============================================================
+    //  GAME RENDERING
     // ============================================================
     function renderGame() {
       if (!gameState) return;
