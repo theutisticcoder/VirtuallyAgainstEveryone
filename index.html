@@ -1195,7 +1195,7 @@
       leftContent.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:0.5rem;max-height:400px;overflow-y:auto">
       ${myHand.map((card, idx) => `
-        <div class="white-card selectable" style="cursor:pointer" onclick="submitAnswer('${escAttr(card)}')">${escHtml(card)}</div>
+        <div class="white-card selectable" style="cursor:pointer" onclick="submitAnswer(${escAttr(card)})">${escHtml(card)}</div>
       `).join('')}
     </div>
   `;
