@@ -1323,7 +1323,9 @@
 
       // Refill hands
       players.forEach(p => {
-        p.hand = drawCards(10 - p.hand.length);
+        if(p.hand.length != 10){
+        p.hand.push(drawCards(1)[0]);
+        }
       });
 
       gameState.czarIndex = (gameState.czarIndex + 1) % players.length;
