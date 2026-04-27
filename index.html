@@ -1269,7 +1269,8 @@
 
       // Remove from hand
       const idx = myHand.indexOf(text);
-      if (idx > -1) myHand.splice(idx, 1, text);
+      if (idx > -1) myHand.slice(idx, 1);
+      console.log(idx, myHand, text);
 
       if (isHost) {
         gameState.submissions[myId] = text;
