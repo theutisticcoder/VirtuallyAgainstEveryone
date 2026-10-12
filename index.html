@@ -730,7 +730,7 @@
   <!-- ===== GAME SCREEN ===== -->
   <div id="gameScreen">
     <div class="game-header">
-      <h1>Virtually Against Everyone</h1>
+      <h1>Cards Against Everyone</h1>
       <div class="phase-indicator" id="phaseIndicator">—</div>
       <div class="scores" id="scoresArea"></div>
     </div>
@@ -932,7 +932,7 @@
       try {
         peer = await initPeer('cae-' + roomCode);
         myId = peer.id;
-        players = [{ id: myId, name: myName, score: 0, hand: drawcards(5) }];
+        players = [{ id: myId, name: myName, score: 0, hand: drawCards(10) }];
         myHand = players[0].hand;
 
         peer.on('connection', conn => {
@@ -1018,7 +1018,7 @@
       switch (data.type) {
         case 'join':
           console.log('Player joining:', data.name);
-          const newHand = drawcards(5);
+          const newHand = drawCards(10);
           players.push({ id: fromId, name: data.name, score: 0, hand: newHand });
           broadcastToAll({ type: 'playerList', players });
           // send deck and initial hand
@@ -1269,8 +1269,7 @@
 
       // Remove from hand
       const idx = myHand.indexOf(text);
-      if (idx > -1) myHand.slice(idx, 1);
-      console.log(idx, myHand, text);
+      if (idx > -1) myHand.splice(idx, 1);
 
       if (isHost) {
         gameState.submissions[myId] = text;
@@ -1324,9 +1323,7 @@
 
       // Refill hands
       players.forEach(p => {
-        if(p.hand.length != 10){
-        p.hand.push(drawCards(1)[0]);
-        }
+        p.hand = drawCards(10 - p.hand.length);
       });
 
       gameState.czarIndex = (gameState.czarIndex + 1) % players.length;
