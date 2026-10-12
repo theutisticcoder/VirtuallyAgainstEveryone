@@ -932,7 +932,7 @@
       try {
         peer = await initPeer('cae-' + roomCode);
         myId = peer.id;
-        players = [{ id: myId, name: myName, score: 0, hand: drawCards(5) }];
+        players = [{ id: myId, name: myName, score: 0, hand: drawCards(10) }];
         myHand = players[0].hand;
 
         peer.on('connection', conn => {
@@ -1018,7 +1018,7 @@
       switch (data.type) {
         case 'join':
           console.log('Player joining:', data.name);
-          const newHand = drawCards(5);
+          const newHand = drawCards(10);
           players.push({ id: fromId, name: data.name, score: 0, hand: newHand });
           broadcastToAll({ type: 'playerList', players });
           // send deck and initial hand
@@ -1195,7 +1195,7 @@
       leftContent.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:0.5rem;max-height:400px;overflow-y:auto">
       ${myHand.map((card, idx) => `
-        <div class="white-card selectable" style="cursor:pointer" onclick='submitAnswer("${escAttr(card)}")'>${escHtml(card)}</div>
+        <div class="white-card selectable" style="cursor:pointer" onclick="submitAnswer('${escAttr(card)}')">${escHtml(card)}</div>
       `).join('')}
     </div>
   `;
@@ -1323,7 +1323,7 @@
 
       // Refill hands
       players.forEach(p => {
-        p.hand = drawCards(5 - p.hand.length);
+        p.hand = drawCards(10 - p.hand.length);
       });
 
       gameState.czarIndex = (gameState.czarIndex + 1) % players.length;
